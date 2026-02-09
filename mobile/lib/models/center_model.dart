@@ -6,9 +6,12 @@ class CenterModel {
   final String address;
   final GeoPoint location;
   final ManagerInfo manager;
-  final int points;
-  final double totalWeight;
+  final int points; // Monthly points (resets every month)
+  final int totalPointsAllTime; // Cumulative points (never resets)
+  final double totalWeight; // All-time total weight
+  final double monthlyWeight; // Monthly weight (resets every month)
   final DateTime createdAt;
+  final DateTime? lastResetAt; // When points were last reset
   final bool isActive;
 
   CenterModel({
@@ -18,22 +21,32 @@ class CenterModel {
     required this.location,
     required this.manager,
     required this.points,
+    required this.totalPointsAllTime,
     required this.totalWeight,
+    required this.monthlyWeight,
     required this.createdAt,
+    this.lastResetAt,
     required this.isActive,
   });
 
   factory CenterModel.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final currentPoints = data['points'] ?? 0;
+    
     return CenterModel(
       id: doc.id,
       name: data['name'] ?? '',
       address: data['address'] ?? '',
       location: data['location'] as GeoPoint,
       manager: ManagerInfo.fromMap(data['manager'] ?? {}),
-      points: data['points'] ?? 0,
+      points: currentPoints,
+      // Backward compatibility: if totalPointsAllTime doesn't exist, use current points
+      totalPointsAllTime: data['totalPointsAllTime'] ?? currentPoints,
       totalWeight: (data['totalWeight'] ?? 0).toDouble(),
+      // Backward compatibility: if monthlyWeight doesn't exist, start at 0
+      monthlyWeight: (data['monthlyWeight'] ?? 0).toDouble(),
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      lastResetAt: (data['lastResetAt'] as Timestamp?)?.toDate(),
       isActive: data['isActive'] ?? true,
     );
   }
