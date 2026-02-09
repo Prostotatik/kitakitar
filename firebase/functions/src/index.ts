@@ -38,7 +38,7 @@ function aggregateStats(
   stats: Record<string, number> | undefined,
   materials: MaterialEntry[],
 ): Record<string, number> {
-  const result: Record<string, number> = {...(stats || {})};
+  const result: Record<string, number> = { ...(stats || {}) };
   for (const m of materials) {
     const prev = result[m.type] || 0;
     result[m.type] = prev + (m.weight || 0);
@@ -107,7 +107,7 @@ export const onQrScan = functions.https.onCall(async (data, context) => {
         );
       }
 
-      const {centerId, transactionDraft} = qrData;
+      const { centerId, transactionDraft } = qrData;
       const materials = transactionDraft.materials || [];
       const totalWeight = transactionDraft.totalWeight || 0;
 
@@ -135,15 +135,22 @@ export const onQrScan = functions.https.onCall(async (data, context) => {
       const userData = userSnap.data() || {};
       const userStats = aggregateStats(userData.stats, materials);
 
+      // Backward compatibility: migrate old data if needed
+      const currentPoints = userData.points || 0;
+      const totalPointsAllTime = userData.totalPointsAllTime ?? currentPoints;
+      const monthlyWeight = userData.monthlyWeight || 0;
+
       tx.set(
         userRef,
         {
-          points: (userData.points || 0) + pointsUser,
-          totalWeight: (userData.totalWeight || 0) + totalWeight,
+          points: currentPoints + pointsUser, // Monthly points
+          totalPointsAllTime: totalPointsAllTime + pointsUser, // All-time points
+          totalWeight: (userData.totalWeight || 0) + totalWeight, // All-time weight
+          monthlyWeight: monthlyWeight + totalWeight, // Monthly weight
           stats: userStats,
           lastTransactionAt: now,
         },
-        {merge: true},
+        { merge: true },
       );
 
       // Обновляем центр
@@ -151,14 +158,21 @@ export const onQrScan = functions.https.onCall(async (data, context) => {
       const centerSnap = await tx.get(centerRef);
       const centerData = centerSnap.data() || {};
 
+      // Backward compatibility: migrate old data if needed
+      const currentCenterPoints = centerData.points || 0;
+      const centerTotalPointsAllTime = centerData.totalPointsAllTime ?? currentCenterPoints;
+      const centerMonthlyWeight = centerData.monthlyWeight || 0;
+
       tx.set(
         centerRef,
         {
-          points: (centerData.points || 0) + pointsCenter,
-          totalWeight: (centerData.totalWeight || 0) + totalWeight,
+          points: currentCenterPoints + pointsCenter, // Monthly points
+          totalPointsAllTime: centerTotalPointsAllTime + pointsCenter, // All-time points
+          totalWeight: (centerData.totalWeight || 0) + totalWeight, // All-time weight
+          monthlyWeight: centerMonthlyWeight + totalWeight, // Monthly weight
           lastTransactionAt: now,
         },
-        {merge: true},
+        { merge: true },
       );
 
       // Помечаем QR как использованный
@@ -243,7 +257,7 @@ export const createQrForCenter = functions.https.onCall(
       usedAt: null,
     });
 
-    return {qrId: qrRef.id};
+    return { qrId: qrRef.id };
   },
 );
 
@@ -265,52 +279,95 @@ export const onTransactionCreate = functions.firestore
 export const updateLeaderboards = functions.pubsub
   .schedule("every 15 minutes")
   .onRun(async () => {
-    // Пример: leaderboard по points для users и centers (all-time)
-    const usersSnap = await db
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const batch = db.batch();
+
+    // --- USERS MONTHLY LEADERBOARD (sorted by monthly points) ---
+    const usersMonthlySnap = await db
       .collection("users")
       .orderBy("points", "desc")
       .limit(100)
       .get();
 
-    const centersSnap = await db
+    const usersMonthlyItems = usersMonthlySnap.docs.map((d) => ({
+      id: d.id,
+      points: d.get("points") || 0, // Monthly points
+      monthlyWeight: d.get("monthlyWeight") || 0,
+    }));
+
+    const usersMonthlyLbRef = db.collection("leaderboards").doc("users_monthly");
+    batch.set(usersMonthlyLbRef, {
+      type: "users",
+      period: "monthly",
+      items: usersMonthlyItems,
+      updatedAt: now,
+    });
+
+    // --- USERS ALL-TIME LEADERBOARD (sorted by totalPointsAllTime) ---
+    const usersAllTimeSnap = await db
+      .collection("users")
+      .orderBy("totalPointsAllTime", "desc")
+      .limit(100)
+      .get();
+
+    const usersAllTimeItems = usersAllTimeSnap.docs.map((d) => ({
+      id: d.id,
+      totalPointsAllTime: d.get("totalPointsAllTime") || 0,
+      totalWeight: d.get("totalWeight") || 0,
+    }));
+
+    const usersAllTimeLbRef = db.collection("leaderboards").doc("users_all_time");
+    batch.set(usersAllTimeLbRef, {
+      type: "users",
+      period: "all_time",
+      items: usersAllTimeItems,
+      updatedAt: now,
+    });
+
+    // --- CENTERS MONTHLY LEADERBOARD (sorted by monthly points) ---
+    const centersMonthlySnap = await db
       .collection("centers")
       .orderBy("points", "desc")
       .limit(100)
       .get();
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
-
-    const usersItems = usersSnap.docs.map((d) => ({
+    const centersMonthlyItems = centersMonthlySnap.docs.map((d) => ({
       id: d.id,
-      points: d.get("points") || 0,
-      totalWeight: d.get("totalWeight") || 0,
+      points: d.get("points") || 0, // Monthly points
+      monthlyWeight: d.get("monthlyWeight") || 0,
     }));
 
-    const centersItems = centersSnap.docs.map((d) => ({
-      id: d.id,
-      points: d.get("points") || 0,
-      totalWeight: d.get("totalWeight") || 0,
-    }));
-
-    const batch = db.batch();
-
-    const usersLbRef = db.collection("leaderboards").doc("users_all_time");
-    batch.set(usersLbRef, {
-      type: "users",
-      period: "all_time",
-      items: usersItems,
+    const centersMonthlyLbRef = db.collection("leaderboards").doc("centers_monthly");
+    batch.set(centersMonthlyLbRef, {
+      type: "centers",
+      period: "monthly",
+      items: centersMonthlyItems,
       updatedAt: now,
     });
 
-    const centersLbRef = db.collection("leaderboards").doc("centers_all_time");
-    batch.set(centersLbRef, {
+    // --- CENTERS ALL-TIME LEADERBOARD (sorted by totalPointsAllTime) ---
+    const centersAllTimeSnap = await db
+      .collection("centers")
+      .orderBy("totalPointsAllTime", "desc")
+      .limit(100)
+      .get();
+
+    const centersAllTimeItems = centersAllTimeSnap.docs.map((d) => ({
+      id: d.id,
+      totalPointsAllTime: d.get("totalPointsAllTime") || 0,
+      totalWeight: d.get("totalWeight") || 0,
+    }));
+
+    const centersAllTimeLbRef = db.collection("leaderboards").doc("centers_all_time");
+    batch.set(centersAllTimeLbRef, {
       type: "centers",
       period: "all_time",
-      items: centersItems,
+      items: centersAllTimeItems,
       updatedAt: now,
     });
 
     await batch.commit();
+    console.log("Updated monthly and all-time leaderboards for users and centers");
   });
 
 // --- SCHEDULE: cleanupExpiredQr ---
@@ -334,4 +391,94 @@ export const cleanupExpiredQr = functions.pubsub
     }
   });
 
+// --- SCHEDULE: resetMonthlyPoints ---
+
+/**
+ * Runs on the 1st of every month at 00:00 UTC.
+ * Resets monthly points and weight for all users and centers,
+ * while preserving all-time statistics and transaction history.
+ */
+export const resetMonthlyPoints = functions.pubsub
+  .schedule("0 0 1 * *") // Every 1st day of the month at midnight UTC
+  .timeZone("UTC")
+  .onRun(async () => {
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    // Archive previous month's leaderboards before reset
+    const prevMonth = new Date();
+    prevMonth.setMonth(prevMonth.getMonth() - 1);
+    const archiveKey = `${prevMonth.getFullYear()}_${String(prevMonth.getMonth() + 1).padStart(2, "0")}`;
+
+    try {
+      // Archive users leaderboard
+      const usersLbSnap = await db.collection("leaderboards").doc("users_monthly").get();
+      if (usersLbSnap.exists) {
+        await db.collection("leaderboards").doc(`users_monthly_${archiveKey}`).set(usersLbSnap.data()!);
+      }
+
+      // Archive centers leaderboard
+      const centersLbSnap = await db.collection("leaderboards").doc("centers_monthly").get();
+      if (centersLbSnap.exists) {
+        await db.collection("leaderboards").doc(`centers_monthly_${archiveKey}`).set(centersLbSnap.data()!);
+      }
+    } catch (error) {
+      console.error("Error archiving leaderboards", error);
+    }
+
+    // Reset users in batches of 500
+    let usersProcessed = 0;
+    let usersBatch = db.batch();
+    const usersSnap = await db.collection("users").get();
+
+    usersSnap.docs.forEach((doc) => {
+      usersBatch.update(doc.ref, {
+        points: 0, // Reset monthly points
+        monthlyWeight: 0, // Reset monthly weight
+        lastResetAt: now,
+        // totalPointsAllTime and totalWeight remain unchanged
+      });
+
+      usersProcessed++;
+      if (usersProcessed % 500 === 0) {
+        // Commit and start new batch
+        usersBatch.commit().catch((err) => console.error("Batch commit error", err));
+        usersBatch = db.batch();
+      }
+    });
+
+    // Commit remaining users
+    if (usersProcessed % 500 !== 0) {
+      await usersBatch.commit();
+    }
+
+    console.log(`Reset monthly points for ${usersProcessed} users`);
+
+    // Reset centers in batches of 500
+    let centersProcessed = 0;
+    let centersBatch = db.batch();
+    const centersSnap = await db.collection("centers").get();
+
+    centersSnap.docs.forEach((doc) => {
+      centersBatch.update(doc.ref, {
+        points: 0, // Reset monthly points
+        monthlyWeight: 0, // Reset monthly weight
+        lastResetAt: now,
+        // totalPointsAllTime and totalWeight remain unchanged
+      });
+
+      centersProcessed++;
+      if (centersProcessed % 500 === 0) {
+        // Commit and start new batch
+        centersBatch.commit().catch((err) => console.error("Batch commit error", err));
+        centersBatch = db.batch();
+      }
+    });
+
+    // Commit remaining centers
+    if (centersProcessed % 500 !== 0) {
+      await centersBatch.commit();
+    }
+
+    console.log(`Reset monthly points for ${centersProcessed} centers`);
+  });
 
