@@ -57,7 +57,11 @@
               return;
             }
             var service = new google.maps.places.AutocompleteService();
-            service.getPlacePredictions({ input: input, types: ['address'] }, function(predictions, status) {
+            service.getPlacePredictions({
+              input: input,
+              types: ['address'],
+              componentRestrictions: { country: 'my' } // restrict to Malaysia
+            }, function(predictions, status) {
               if (status !== 'OK') {
                 resolve({ status: status || 'ERROR', predictions: [] });
                 return;

@@ -1,15 +1,16 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../services/photon_autocomplete_service.dart';
 
-/// Default map position (Tashkent).
-const double _defaultLat = 41.2995;
-const double _defaultLng = 69.2401;
+/// Default map position (Malaysia, near geographic center).
+const double _defaultLat = 4.21;
+const double _defaultLng = 101.98;
 
-/// One address suggestion (Photon returns lat/lng in the same call, no second request).
+/// One address suggestion (Photon returns lat/lng directly, no second request).
 typedef _Suggestion = ({
   String description,
   double lat,
@@ -49,30 +50,29 @@ class _AddressMapPickerState extends State<AddressMapPicker> {
   bool _reverseGeocoding = false;
   Timer? _debounceTimer;
   String _status = '';
+  bool _hasSearchSelection = false;
 
   @override
   void initState() {
     super.initState();
+    debugPrint('[AddressMapPicker] initState '
+        'initialLat=${widget.initialLat}, initialLng=${widget.initialLng}, '
+        'initialAddress="${widget.initialAddress}"');
     _syncFromWidget();
   }
 
-  @override
-  void didUpdateWidget(AddressMapPicker oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialLat != widget.initialLat ||
-        oldWidget.initialLng != widget.initialLng ||
-        oldWidget.initialAddress != widget.initialAddress) {
-      _syncFromWidget();
-      setState(() {});
-    }
-  }
-
+  /// Sync only on first build. Avoids parent rebuilds (e.g. in profile) overwriting
+  /// user input and moving the marker while they type or select an address.
   void _syncFromWidget() {
     if (widget.initialAddress != null && widget.initialAddress!.isNotEmpty) {
       _addressController.text = widget.initialAddress!;
     }
     if (widget.initialLat != null && widget.initialLng != null) {
       final pos = LatLng(widget.initialLat!, widget.initialLng!);
+      debugPrint(
+        '[AddressMapPicker] _syncFromWidget set marker from initial: '
+        'lat=${widget.initialLat}, lng=${widget.initialLng}',
+      );
       _markerPosition = pos;
       _markers = {
         Marker(
@@ -104,20 +104,29 @@ class _AddressMapPickerState extends State<AddressMapPicker> {
     }
     setState(() => _suggestionsLoading = true);
     _debounceTimer = Timer(const Duration(milliseconds: 350), () async {
+      debugPrint('[AddressMapPicker] query="$value" → fetching Photon suggestions');
       final list = await PhotonAutocompleteService.getSuggestions(value);
       if (!mounted) return;
       setState(() {
         _suggestions = list;
         _suggestionsLoading = false;
       });
+      debugPrint(
+        '[AddressMapPicker] Photon suggestions count=${list.length} '
+        'for query="$value"',
+      );
     });
   }
 
   void _onSuggestionTap(_Suggestion s) {
+    debugPrint(
+      '[AddressMapPicker] onSuggestionTap '
+      '"${s.description}" lat=${s.lat}, lng=${s.lng}',
+    );
     final position = LatLng(s.lat, s.lng);
     setState(() {
       _suggestions = [];
-      _addressController.text = s.description;
+      _addressController.text = s.address;
       _markerPosition = position;
       _markers = {
         Marker(
@@ -127,16 +136,37 @@ class _AddressMapPickerState extends State<AddressMapPicker> {
       };
       _status =
           'Coordinates: ${s.lat.toStringAsFixed(4)}, ${s.lng.toStringAsFixed(4)}.';
+      _hasSearchSelection = true;
     });
     _mapController?.animateCamera(
       CameraUpdate.newLatLngZoom(position, 15),
+    );
+    debugPrint(
+      '[AddressMapPicker] marker updated & camera animated to '
+      'lat=${position.latitude}, lng=${position.longitude}',
+    );
+    debugPrint(
+      '[AddressMapPicker] calling onLocationSelected '
+      'lat=${s.lat}, lng=${s.lng}',
     );
     widget.onLocationSelected(s.lat, s.lng, s.address);
   }
 
   void _onMapTap(LatLng position) {
+    // If location was already chosen from search suggestions, ignore accidental
+    // map taps (they can be triggered while interacting with the overlay).
+    if (_hasSearchSelection) {
+      debugPrint(
+        '[AddressMapPicker] onMapTap ignored because location already set from search',
+      );
+      return;
+    }
+
     final lat = position.latitude;
     final lng = position.longitude;
+    debugPrint(
+      '[AddressMapPicker] onMapTap lat=$lat, lng=$lng',
+    );
     final coordsStr =
         '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
     setState(() {
@@ -163,6 +193,10 @@ class _AddressMapPickerState extends State<AddressMapPicker> {
             'Coordinates: ${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}.';
         _reverseGeocoding = false;
       });
+      debugPrint(
+        '[AddressMapPicker] reverse geocode resolved="$resolved" '
+        'for lat=$lat, lng=$lng',
+      );
       widget.onLocationSelected(lat, lng, resolved);
     });
   }
@@ -189,12 +223,20 @@ class _AddressMapPickerState extends State<AddressMapPicker> {
               children: [
                 Positioned.fill(
                   child: GoogleMap(
+                    key: ValueKey(
+                      '${_markerPosition?.latitude}_${_markerPosition?.longitude}',
+                    ),
                     initialCameraPosition: CameraPosition(
                       target: _initialCamera,
                       zoom: _markerPosition != null ? 15 : 10,
                     ),
                     onMapCreated: (GoogleMapController c) {
                       _mapController = c;
+                      debugPrint(
+                        '[AddressMapPicker] GoogleMap created. '
+                        'initialCamera=$_initialCamera, '
+                        'marker=$_markerPosition',
+                      );
                     },
                     onTap: _onMapTap,
                     markers: _markers,

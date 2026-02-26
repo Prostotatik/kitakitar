@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 
+import 'package:qr_flutter/qr_flutter.dart';
+
 import 'firebase_options.dart';
 import 'models/center_material.dart' show CenterMaterialEntry, getMaterialIcon, kMaterialTypes;
+import 'models/center_profile.dart';
 import 'providers/center_auth_provider.dart';
+import 'providers/center_data_provider.dart';
 import 'services/center_firestore_service.dart';
 import 'widgets/address_map_picker.dart';
 
@@ -21,8 +25,11 @@ class CenterWebApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => CenterAuthProvider(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => CenterAuthProvider()),
+        ChangeNotifierProvider(create: (_) => CenterDataProvider()),
+      ],
       child: MaterialApp(
         title: 'KitaKitar Center',
         debugShowCheckedModeBanner: false,
@@ -34,28 +41,50 @@ class CenterWebApp extends StatelessWidget {
   }
 
   ThemeData _buildTheme(Brightness brightness) {
-    const primary = Color(0xFF0D9488);
-    const secondary = Color(0xFF065F46);
+    // Match mobile app branding: green primary (0xFF4CAF50).
+    const primary = Color(0xFF4CAF50);
+    const secondary = Color(0xFF2E7D32);
+    const surfaceLight = Color(0xFFF8FAFC);
+    const onSurfaceLight = Color(0xFF1E293B);
 
+    final isLight = brightness == Brightness.light;
     final base = ThemeData(
       colorScheme: ColorScheme.fromSeed(
         seedColor: primary,
         primary: primary,
         secondary: secondary,
         brightness: brightness,
+        surface: isLight ? surfaceLight : const Color(0xFF1E293B),
+        onSurface: isLight ? onSurfaceLight : const Color(0xFFF1F5F9),
       ),
       useMaterial3: true,
     );
 
     return base.copyWith(
-      scaffoldBackgroundColor:
-          brightness == Brightness.light ? const Color(0xFFF0FDF4) : null,
+      scaffoldBackgroundColor: isLight
+          ? const Color(0xFFF0FDF4)
+          : const Color(0xFF0F172A),
+      colorScheme: base.colorScheme.copyWith(
+        surface: isLight ? surfaceLight : const Color(0xFF1E293B),
+        onSurface: isLight ? onSurfaceLight : const Color(0xFFF1F5F9),
+      ),
       textTheme: base.textTheme.apply(
         fontFamily: 'Roboto',
+        bodyColor: isLight ? onSurfaceLight : const Color(0xFFF1F5F9),
+        displayColor: isLight ? onSurfaceLight : const Color(0xFFF1F5F9),
       ),
       inputDecorationTheme: InputDecorationTheme(
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
+        ),
+        filled: true,
+        fillColor: isLight ? Colors.white : const Color(0xFF334155),
+      ),
+      cardTheme: CardThemeData(
+        color: isLight ? Colors.white : const Color(0xFF1E293B),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
         ),
       ),
     );
@@ -103,7 +132,11 @@ class _RootShellState extends State<_RootShell> {
     }
 
     return DashboardShell(
-      onLogout: () => auth.signOut(),
+      centerId: auth.user!.uid,
+      onLogout: () {
+        auth.signOut();
+        Provider.of<CenterDataProvider>(context, listen: false).clear();
+      },
     );
   }
 }
@@ -168,7 +201,7 @@ class _LoginPageState extends State<LoginPage> {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF0D9488), Color(0xFF065F46), Color(0xFF1E3A2F)],
+            colors: [Color(0xFF4CAF50), Color(0xFF2E7D32), Color(0xFF1B5E20)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -293,11 +326,18 @@ class _RegisterCenterPageState extends State<RegisterCenterPage> {
   }
 
   void _onLocationSelected(double lat, double lng, String address) {
+    debugPrint(
+      '[RegisterCenterPage] onLocationSelected lat=$lat, lng=$lng, address="$address"',
+    );
     setState(() {
       _lat = lat;
       _lng = lng;
       _addressController.text = address;
     });
+    debugPrint(
+      '[RegisterCenterPage] state updated _lat=$_lat, _lng=$_lng, '
+      'address="${_addressController.text}"',
+    );
   }
 
   Future<void> _submit() async {
@@ -433,7 +473,7 @@ class _RegisterCenterPageState extends State<RegisterCenterPage> {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF0D9488), Color(0xFF065F46), Color(0xFF1E3A2F)],
+            colors: [Color(0xFF4CAF50), Color(0xFF2E7D32), Color(0xFF1B5E20)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -670,7 +710,7 @@ class ForgotPasswordPage extends StatelessWidget {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF0D9488), Color(0xFF065F46), Color(0xFF1E3A2F)],
+            colors: [Color(0xFF4CAF50), Color(0xFF2E7D32), Color(0xFF1B5E20)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -738,8 +778,9 @@ class ForgotPasswordPage extends StatelessWidget {
 enum _DashboardPage { dashboard, profile, newIntake, qrCodes, history }
 
 class DashboardShell extends StatefulWidget {
-  const DashboardShell({super.key, required this.onLogout});
+  const DashboardShell({super.key, required this.centerId, required this.onLogout});
 
+  final String centerId;
   final VoidCallback onLogout;
 
   @override
@@ -748,6 +789,14 @@ class DashboardShell extends StatefulWidget {
 
 class _DashboardShellState extends State<DashboardShell> {
   _DashboardPage _page = _DashboardPage.dashboard;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<CenterDataProvider>(context, listen: false).load(widget.centerId);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -761,7 +810,7 @@ class _DashboardShellState extends State<DashboardShell> {
           ),
           Expanded(
             child: Container(
-              color: const Color(0xFFF1F5F9),
+              color: Theme.of(context).colorScheme.surface,
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: _buildPage(),
@@ -782,7 +831,7 @@ class _DashboardShellState extends State<DashboardShell> {
       case _DashboardPage.newIntake:
         return const _NewIntakePageView();
       case _DashboardPage.qrCodes:
-        return const _QrCodesPageView();
+        return _QrCodesPageView(centerId: widget.centerId);
       case _DashboardPage.history:
         return const _HistoryPageView();
     }
@@ -804,7 +853,7 @@ class _Sidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 260,
-      color: Colors.white,
+      color: Theme.of(context).colorScheme.surface,
       child: Column(
         children: [
           Container(
@@ -822,7 +871,7 @@ class _Sidebar extends StatelessWidget {
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF0D9488), Color(0xFF065F46)],
+                      colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)],
                     ),
                   ),
                   child: const Icon(
@@ -842,10 +891,9 @@ class _Sidebar extends StatelessWidget {
                     ),
                     Text(
                       'Center admin',
-                      style: Theme.of(context)
-                          .textTheme
-                          .labelSmall
-                          ?.copyWith(color: Colors.grey),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
                     ),
                   ],
                 ),
@@ -952,7 +1000,7 @@ class _SidebarItem extends StatelessWidget {
               Icon(
                 icon,
                 size: 20,
-                color: selected ? colorScheme.primary : Colors.grey.shade600,
+                color: selected ? colorScheme.primary : colorScheme.onSurfaceVariant,
               ),
               const SizedBox(width: 12),
               Text(
@@ -960,7 +1008,7 @@ class _SidebarItem extends StatelessWidget {
                 style: TextStyle(
                   fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                   color:
-                      selected ? colorScheme.primary : Colors.grey.shade700,
+                      selected ? colorScheme.primary : colorScheme.onSurface,
                 ),
               ),
             ],
@@ -972,7 +1020,7 @@ class _SidebarItem extends StatelessWidget {
 }
 
 /// -----------------------
-/// DASHBOARD PAGES (UI ONLY)
+/// DASHBOARD PAGES (from Firestore)
 /// -----------------------
 
 class _DashboardPageView extends StatelessWidget {
@@ -982,361 +1030,1066 @@ class _DashboardPageView extends StatelessWidget {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Welcome back!',
-          style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Your recycling center overview',
-          style: textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
-        ),
-        const SizedBox(height: 24),
-        Wrap(
-          spacing: 16,
-          runSpacing: 16,
-          children: const [
-            _StatCard(
-              title: 'Total intakes',
-              value: '0',
-              icon: Icons.insert_drive_file_outlined,
-              color: Color(0xFF0D9488),
+    return Consumer<CenterDataProvider>(
+      builder: (context, centerData, _) {
+        final colorScheme = Theme.of(context).colorScheme;
+        if (centerData.loading && centerData.center == null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(
+                  'Loading center…',
+                  style: textTheme.bodyLarge?.copyWith(color: colorScheme.onSurface),
+                ),
+              ],
             ),
-            _StatCard(
-              title: 'Total weight',
-              value: '0.0 kg',
-              icon: Icons.scale_outlined,
-              color: Color(0xFF10B981),
+          );
+        }
+        if (centerData.error != null && centerData.center == null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 48, color: colorScheme.error),
+                const SizedBox(height: 16),
+                Text(
+                  centerData.error!,
+                  textAlign: TextAlign.center,
+                  style: textTheme.bodyMedium?.copyWith(color: colorScheme.error),
+                ),
+              ],
             ),
-            _StatCard(
-              title: 'Points issued',
-              value: '0',
-              icon: Icons.stars_rounded,
-              color: Color(0xFFF59E0B),
-            ),
-            _StatCard(
-              title: 'Claimed QR codes',
-              value: '0',
-              icon: Icons.qr_code_2_outlined,
-              color: Color(0xFF8B5CF6),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        Expanded(
-          child: Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Center(
-              child: Text(
-                'Recent intakes and analytics will appear here\n'
-                '(connect to Firestore `/transactions` later).',
-                textAlign: TextAlign.center,
-                style: textTheme.bodyMedium
-                    ?.copyWith(color: Colors.grey.shade500),
+          );
+        }
+
+        final c = centerData.center;
+        final points = c?.points ?? 0;
+        final weight = c?.totalWeight ?? 0.0;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              c != null ? 'Welcome back, ${c.name}!' : 'Welcome back!',
+              style: textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: colorScheme.onSurface,
               ),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ProfilePageView extends StatelessWidget {
-  const _ProfilePageView();
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Center profile',
-            style:
-                textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Update center information and manager contacts.',
-            style: textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
-          ),
-          const SizedBox(height: 24),
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(24),
+            const SizedBox(height: 4),
+            Text(
+              'Your recycling center overview',
+              style: textTheme.bodyMedium?.copyWith(color: colorScheme.onSurface),
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: const [
-                  _SectionTitle('Center information'),
-                  SizedBox(height: 12),
-                  _LabeledTextField(
-                    label: 'Center name',
-                    hint: 'Green Earth Recycling',
-                  ),
-                  SizedBox(height: 12),
-                  _LabeledTextField(
-                    label: 'Address',
-                    hint: 'City, street, building...',
-                    icon: Icons.location_on_outlined,
-                  ),
-                  SizedBox(height: 24),
-                  _SectionTitle('Manager'),
-                  SizedBox(height: 12),
-                  _LabeledTextField(
-                    label: 'Manager name',
-                    hint: 'John Smith',
-                  ),
-                  SizedBox(height: 12),
-                  _LabeledTextField(
-                    label: 'Manager phone',
-                    hint: '+998 90 123 45 67',
-                  ),
-                  SizedBox(height: 24),
-                  _SectionTitle('Accepted materials (read-only placeholder)'),
-                  SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _ChipTag(label: 'Plastic • \$1.2/kg'),
-                      _ChipTag(label: 'Glass • \$0.8/kg'),
-                      _ChipTag(label: 'Paper • free'),
-                    ],
-                  ),
-                  SizedBox(height: 24),
-                  _PrimarySaveButton(),
-                ],
-              ),
+            const SizedBox(height: 24),
+            Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                const _StatCard(
+                  title: 'Total intakes',
+                  value: '0',
+                  icon: Icons.insert_drive_file_outlined,
+                  color: Color(0xFF4CAF50),
+                ),
+                _StatCard(
+                  title: 'Total weight',
+                  value: '${weight.toStringAsFixed(1)} kg',
+                  icon: Icons.scale_outlined,
+                  color: const Color(0xFF10B981),
+                ),
+                _StatCard(
+                  title: 'Points issued',
+                  value: '$points',
+                  icon: Icons.stars_rounded,
+                  color: const Color(0xFFF59E0B),
+                ),
+                const _StatCard(
+                  title: 'Claimed QR codes',
+                  value: '0',
+                  icon: Icons.qr_code_2_outlined,
+                  color: Color(0xFF8B5CF6),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NewIntakePageView extends StatelessWidget {
-  const _NewIntakePageView();
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'New intake',
-          style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Register fact of waste acceptance and generate QR code.',
-          style: textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
-        ),
-        const SizedBox(height: 24),
-        Expanded(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 3,
-                child: Card(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const _SectionTitle('Material'),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: const [
-                            _MaterialPill(icon: '🥤', label: 'Plastic'),
-                            _MaterialPill(icon: '📄', label: 'Paper'),
-                            _MaterialPill(icon: '🍾', label: 'Glass'),
-                            _MaterialPill(icon: '🥫', label: 'Metal'),
-                            _MaterialPill(icon: '📱', label: 'Electronics'),
-                            _MaterialPill(icon: '🔋', label: 'Batteries'),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                        const _SectionTitle('Actual weight'),
-                        const SizedBox(height: 12),
-                        const _LabeledTextField(
-                          label: 'Weight (kg)',
-                          hint: 'Enter actual weight, e.g. 3.5',
-                          keyboardType: TextInputType.number,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Min / max per material and dynamic hints can be connected\n'
-                          'to Firestore `/centers/{centerId}/materials` later.',
-                          style: textTheme.bodySmall
-                              ?.copyWith(color: Colors.grey.shade500),
-                        ),
-                        const SizedBox(height: 24),
-                        const _PrimarySaveButton(
-                          label: 'Generate QR code',
-                        ),
-                      ],
-                    ),
+            const SizedBox(height: 24),
+            Expanded(
+              child: Card(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Center(
+                  child: Text(
+                    'Recent intakes and analytics will appear here\n'
+                    '(connect to Firestore `/transactions` later).',
+                    textAlign: TextAlign.center,
+                    style: textTheme.bodyMedium
+                        ?.copyWith(color: colorScheme.onSurface),
                   ),
                 ),
               ),
-              const SizedBox(width: 24),
-              Expanded(
-                flex: 2,
-                child: Card(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const _SectionTitle('QR code preview'),
-                        const SizedBox(height: 12),
-                        Container(
-                          height: 220,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(24),
-                            color: Colors.grey.shade100,
-                          ),
-                          child: Center(
-                            child: Text(
-                              'QR preview will be rendered here\n'
-                              '(connect `qr_flutter` and `/qr_codes` later).',
-                              textAlign: TextAlign.center,
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ProfilePageView extends StatefulWidget {
+  const _ProfilePageView();
+
+  @override
+  State<_ProfilePageView> createState() => _ProfilePageViewState();
+}
+
+class _ProfilePageViewState extends State<_ProfilePageView> {
+  final _nameController = TextEditingController();
+  final _addressController = TextEditingController();
+  final _managerNameController = TextEditingController();
+  final _managerPhoneController = TextEditingController();
+  final _managerEmailController = TextEditingController();
+  double? _lat;
+  double? _lng;
+  String? _syncedCenterId;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _addressController.dispose();
+    _managerNameController.dispose();
+    _managerPhoneController.dispose();
+    _managerEmailController.dispose();
+    super.dispose();
+  }
+
+  void _syncFromCenter(CenterProfile c, String centerId) {
+    if (_syncedCenterId == centerId) return;
+    _syncedCenterId = centerId;
+    _nameController.text = c.name;
+    _addressController.text = c.address;
+    _managerNameController.text = c.managerName;
+    _managerPhoneController.text = c.managerPhone;
+    _managerEmailController.text = c.managerEmail;
+    _lat = c.lat;
+    _lng = c.lng;
+  }
+
+  Future<void> _save(BuildContext context) async {
+    final centerData = Provider.of<CenterDataProvider>(context, listen: false);
+    final centerId = centerData.centerId;
+    final c = centerData.center;
+    if (centerId == null || c == null) return;
+    final name = _nameController.text.trim();
+    final address = _addressController.text.trim();
+    final managerName = _managerNameController.text.trim();
+    final managerPhone = _managerPhoneController.text.trim();
+    final managerEmail = _managerEmailController.text.trim();
+    if (name.isEmpty || address.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Name and address are required')),
+      );
+      return;
+    }
+    final lat = _lat ?? c.lat;
+    final lng = _lng ?? c.lng;
+    setState(() => _saving = true);
+    try {
+      await CenterFirestoreService().updateCenter(
+        centerId: centerId,
+        name: name,
+        address: address,
+        lat: lat,
+        lng: lng,
+        managerName: managerName,
+        managerPhone: managerPhone,
+        managerEmail: managerEmail,
+      );
+      await centerData.refresh();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile saved')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Consumer<CenterDataProvider>(
+      builder: (context, centerData, _) {
+        if (centerData.loading && centerData.center == null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(
+                  'Loading profile…',
+                  style: textTheme.bodyLarge?.copyWith(color: colorScheme.onSurface),
+                ),
+              ],
+            ),
+          );
+        }
+        if (centerData.error != null && centerData.center == null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 48, color: colorScheme.error),
+                const SizedBox(height: 16),
+                Text(
+                  centerData.error!,
+                  textAlign: TextAlign.center,
+                  style: textTheme.bodyMedium?.copyWith(color: colorScheme.error),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final c = centerData.center!;
+        final centerId = centerData.centerId ?? '';
+        _syncFromCenter(c, centerId);
+        final materials = centerData.materials;
+
+        return SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Center profile',
+                style: textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Update center information and manager contacts.',
+                style: textTheme.bodyMedium?.copyWith(color: colorScheme.onSurface),
+              ),
+              const SizedBox(height: 24),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const _SectionTitle('Center information'),
+                      const SizedBox(height: 12),
+                      _LabeledTextField(
+                        controller: _nameController,
+                        label: 'Center name',
+                        hint: 'Green Earth Recycling',
+                      ),
+                      const SizedBox(height: 12),
+                      AddressMapPicker(
+                        initialAddress: _addressController.text.isEmpty ? null : _addressController.text,
+                        initialLat: _lat,
+                        initialLng: _lng,
+                        onLocationSelected: (lat, lng, address) {
+                          debugPrint(
+                            '[ProfilePage] onLocationSelected lat=$lat, lng=$lng, address="$address"',
+                          );
+                          setState(() {
+                            _lat = lat;
+                            _lng = lng;
+                            _addressController.text = address;
+                          });
+                          debugPrint(
+                            '[ProfilePage] state updated _lat=$_lat, _lng=$_lng, '
+                            'address="${_addressController.text}"',
+                          );
+                        },
+                        height: 220,
+                      ),
+                      const SizedBox(height: 24),
+                      const _SectionTitle('Manager'),
+                      const SizedBox(height: 12),
+                      _LabeledTextField(
+                        controller: _managerNameController,
+                        label: 'Manager name',
+                        hint: 'John Smith',
+                      ),
+                      const SizedBox(height: 12),
+                      _LabeledTextField(
+                        controller: _managerPhoneController,
+                        label: 'Manager phone',
+                        hint: '+998 90 123 45 67',
+                      ),
+                      const SizedBox(height: 12),
+                      _LabeledTextField(
+                        controller: _managerEmailController,
+                        label: 'Manager email',
+                        hint: 'manager@center.com',
+                      ),
+                      const SizedBox(height: 24),
+                      const _SectionTitle('Accepted materials'),
+                      const SizedBox(height: 8),
+                      materials.isEmpty
+                          ? Text(
+                              'No materials configured.',
                               style: textTheme.bodySmall?.copyWith(
-                                color: Colors.grey.shade500,
+                                color: colorScheme.onSurface,
                               ),
+                            )
+                          : Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: materials
+                                  .map((m) => _ChipTag(
+                                        label: m.isFree
+                                            ? '${m.label} • free'
+                                            : '${m.label} • \$${m.pricePerKg.toStringAsFixed(2)}/kg',
+                                      ))
+                                  .toList(),
+                            ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _saving ? null : () => _save(context),
+                          icon: _saving
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.check_rounded),
+                          label: Text(_saving ? 'Saving…' : 'Save changes'),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
                             ),
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Client scans this QR in mobile app to receive points.\n'
-                          'Each QR should be one-time and linked to `/transactions`.',
-                          style: textTheme.bodySmall
-                              ?.copyWith(color: Colors.grey.shade500),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
 
-class _QrCodesPageView extends StatelessWidget {
-  const _QrCodesPageView();
+class _NewIntakePageView extends StatefulWidget {
+  const _NewIntakePageView();
+
+  @override
+  State<_NewIntakePageView> createState() => _NewIntakePageViewState();
+}
+
+/// Payload prefix for QR so mobile app can recognize and claim.
+const String kQrPayloadPrefix = 'KITAKITAR_QR:';
+
+class _NewIntakePageViewState extends State<_NewIntakePageView> {
+  /// Selected material types -> weight (kg). Empty = none selected.
+  final Map<String, TextEditingController> _weightControllers = {};
+  /// After "Generate QR code", the created document id. Null until generated.
+  String? _generatedQrId;
+  bool _isGenerating = false;
+
+  @override
+  void dispose() {
+    for (final c in _weightControllers.values) {
+      c.dispose();
+    }
+    _weightControllers.clear();
+    super.dispose();
+  }
+
+  void _toggleMaterial(CenterMaterialEntry m) {
+    if (_weightControllers.containsKey(m.type)) {
+      _weightControllers[m.type]?.dispose();
+      _weightControllers.remove(m.type);
+    } else {
+      _weightControllers[m.type] = TextEditingController(text: '');
+    }
+    setState(() {});
+  }
+
+  Future<void> _generateQr(
+      BuildContext context, CenterDataProvider centerData) async {
+    final centerId = centerData.centerId;
+    final materials = centerData.materials;
+    if (centerId == null || materials.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Center not loaded or no materials configured.')),
+      );
+      return;
+    }
+    final list = <({String type, double weightKg})>[];
+    for (final e in _weightControllers.entries) {
+      final w = double.tryParse(e.value.text.replaceAll(',', '.')) ?? 0;
+      if (w <= 0) continue;
+      list.add((type: e.key, weightKg: w));
+    }
+    if (list.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Select at least one material and enter weight (kg) > 0 for each.'),
+        ),
+      );
+      return;
+    }
+    setState(() => _isGenerating = true);
+    try {
+      final qrId = await CenterFirestoreService().createIntakeQr(
+        centerId: centerId,
+        materialsWithWeights: list,
+        centerMaterials: materials,
+      );
+      if (!mounted) return;
+      setState(() {
+        _generatedQrId = qrId;
+        _isGenerating = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('QR code created. Client can scan to claim.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isGenerating = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Consumer<CenterDataProvider>(
+      builder: (context, centerData, _) {
+        final materials = centerData.materials;
+        final selectedEntries = materials
+            .where((m) => _weightControllers.containsKey(m.type))
+            .toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'New intake',
+              style: textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Select one or more materials received and enter weight for each (e.g. mixed load).',
+              style: textTheme.bodyMedium?.copyWith(color: colorScheme.onSurface),
+            ),
+            const SizedBox(height: 24),
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const _SectionTitle('Select materials'),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Tap to add or remove. Then enter weight (kg) for each below.',
+                              style: textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            if (materials.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                child: Text(
+                                  'No materials configured. Add accepted materials in Center profile first.',
+                                  style: textTheme.bodyMedium?.copyWith(
+                                    color: colorScheme.onSurface,
+                                  ),
+                                ),
+                              )
+                            else
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 12,
+                                children: materials.map((m) {
+                                  final selected =
+                                      _weightControllers.containsKey(m.type);
+                                  return _MaterialPill(
+                                    icon: _materialEmoji(m.type),
+                                    label: m.label,
+                                    selected: selected,
+                                    onTap: () => _toggleMaterial(m),
+                                  );
+                                }).toList(),
+                              ),
+                            const SizedBox(height: 24),
+                            const _SectionTitle('Weight per material (kg)'),
+                            const SizedBox(height: 12),
+                            if (selectedEntries.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                child: Text(
+                                  'Select at least one material above.',
+                                  style: textTheme.bodySmall?.copyWith(
+                                    color: colorScheme.onSurface,
+                                  ),
+                                ),
+                              )
+                            else
+                              ...selectedEntries.map((m) {
+                                final controller = _weightControllers[m.type]!;
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.end,
+                                    children: [
+                                      Icon(
+                                        getMaterialIcon(m.type),
+                                        size: 22,
+                                        color: colorScheme.primary,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        flex: 2,
+                                        child: Text(
+                                          m.label,
+                                          style: textTheme.bodyMedium?.copyWith(
+                                            color: colorScheme.onSurface,
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(
+                                        width: 100,
+                                        child: TextField(
+                                          controller: controller,
+                                          keyboardType: const TextInputType
+                                              .numberWithOptions(decimal: true),
+                                          decoration: InputDecoration(
+                                            labelText: 'kg',
+                                            hintText:
+                                                '${m.minWeightKg}–${m.maxWeightKg}',
+                                            isDense: true,
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 10),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                            const SizedBox(height: 24),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: _isGenerating
+                                    ? null
+                                    : () => _generateQr(context, centerData),
+                                icon: _isGenerating
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.qr_code_2_rounded),
+                                label: Text(
+                                  _isGenerating
+                                      ? 'Generating…'
+                                      : 'Generate QR code',
+                                ),
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(
+                    flex: 2,
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const _SectionTitle('QR code'),
+                            const SizedBox(height: 12),
+                            if (_generatedQrId == null)
+                              Container(
+                                height: 220,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(24),
+                                  color: colorScheme.surfaceContainerHighest,
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    'Select materials, enter weights,\nthen tap Generate QR code.',
+                                    textAlign: TextAlign.center,
+                                    style: textTheme.bodySmall?.copyWith(
+                                      color: colorScheme.onSurface,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            else
+                              Column(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: QrImageView(
+                                      data: '$kQrPayloadPrefix$_generatedQrId',
+                                      version: QrVersions.auto,
+                                      size: 200,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Client scans this QR in the mobile app to receive points.',
+                                    style: textTheme.bodySmall?.copyWith(
+                                      color: colorScheme.onSurface,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextButton.icon(
+                                    onPressed: () => setState(() {
+                                      _generatedQrId = null;
+                                    }),
+                                    icon: const Icon(Icons.add_circle_outline,
+                                        size: 18),
+                                    label: const Text('Create another'),
+                                  ),
+                                ],
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  static String _materialEmoji(String type) {
+    const map = {
+      'paper': '📄',
+      'plastic': '🥤',
+      'glass': '🍾',
+      'aluminum': '🥫',
+      'batteries': '🔋',
+      'electronics': '📱',
+      'food': '🍎',
+      'lawn': '🌿',
+      'used_oil': '🛢️',
+      'hazardous_waste': '⚠️',
+      'tires': '🛞',
+      'metal': '🔩',
+    };
+    return map[type] ?? '♻️';
+  }
+}
+
+class _QrCodesPageView extends StatefulWidget {
+  const _QrCodesPageView({required this.centerId});
+
+  final String centerId;
+
+  @override
+  State<_QrCodesPageView> createState() => _QrCodesPageViewState();
+}
+
+class _QrCodesPageViewState extends State<_QrCodesPageView> {
+  List<QrCodeListItem> _pending = [];
+  List<QrCodeListItem> _completed = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final firestore = CenterFirestoreService();
+    final pending = await firestore.getPendingQrCodes(widget.centerId);
+    final completed = await firestore.getCompletedQrCodes(widget.centerId);
+    if (!mounted) return;
+    setState(() {
+      _pending = pending;
+      _completed = completed;
+      _loading = false;
+    });
+  }
+
+  void _showQrScanDialog(BuildContext context, QrCodeListItem item) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Scan to claim',
+                  style: textTheme.titleMedium?.copyWith(
+                    color: colorScheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: QrImageView(
+                      data: '$kQrPayloadPrefix${item.id}',
+                      version: QrVersions.auto,
+                      size: 220,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  '${item.totalWeight.toStringAsFixed(1)} kg · ${item.materialsCount} material(s)',
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Client scans this QR in the mobile app to receive points.',
+                  style: textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'QR codes',
-          style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+          style: textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: colorScheme.onSurface,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           'Track pending and claimed QR codes.',
-          style: textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
+          style: textTheme.bodyMedium?.copyWith(color: colorScheme.onSurface),
         ),
         const SizedBox(height: 24),
         Expanded(
-          child: Row(
-            children: [
-              Expanded(
-                child: Card(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24),
+          child: _loading
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Loading…',
+                        style: textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurface,
+                        ),
+                      ),
+                    ],
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const _SectionTitle('Pending QR codes'),
-                        const SizedBox(height: 12),
-                        Expanded(
-                          child: Center(
-                            child: Text(
-                              'List of not-yet-scanned QR codes\n'
-                              '(Firestore `/qr_codes` where `used == false`).',
-                              textAlign: TextAlign.center,
-                              style: textTheme.bodyMedium?.copyWith(
-                                color: Colors.grey.shade500,
+                )
+              : Row(
+                  children: [
+                    Expanded(
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const _SectionTitle('Pending QR codes'),
+                                  const Spacer(),
+                                  TextButton.icon(
+                                    onPressed: _loading ? null : _load,
+                                    icon: const Icon(Icons.refresh, size: 18),
+                                    label: const Text('Refresh'),
+                                  ),
+                                ],
                               ),
-                            ),
+                              const SizedBox(height: 12),
+                              Expanded(
+                                child: _pending.isEmpty
+                                    ? Center(
+                                        child: Text(
+                                          'No pending QR codes.\nGenerate one in New intake.',
+                                          textAlign: TextAlign.center,
+                                          style: textTheme.bodyMedium?.copyWith(
+                                            color: colorScheme.onSurface,
+                                          ),
+                                        ),
+                                      )
+                                    : ListView.builder(
+                                        itemCount: _pending.length,
+                                        itemBuilder: (context, i) {
+                                          final e = _pending[i];
+                                          return _QrCodeListTile(
+                                            item: e,
+                                            colorScheme: colorScheme,
+                                            textTheme: textTheme,
+                                            onTap: () => _showQrScanDialog(context, e),
+                                          );
+                                        },
+                                      ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 24),
-              Expanded(
-                child: Card(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const _SectionTitle('Claimed QR codes'),
-                        const SizedBox(height: 12),
-                        Expanded(
-                          child: Center(
-                            child: Text(
-                              'History of already used QR codes\n'
-                              '(Firestore `/qr_codes` where `used == true`).',
-                              textAlign: TextAlign.center,
-                              style: textTheme.bodyMedium?.copyWith(
-                                color: Colors.grey.shade500,
+                    const SizedBox(width: 24),
+                    Expanded(
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const _SectionTitle('Claimed QR codes'),
+                                  const Spacer(),
+                                  TextButton.icon(
+                                    onPressed: _loading ? null : _load,
+                                    icon: const Icon(Icons.refresh, size: 18),
+                                    label: const Text('Refresh'),
+                                  ),
+                                ],
                               ),
-                            ),
+                              const SizedBox(height: 12),
+                              Expanded(
+                                child: _completed.isEmpty
+                                    ? Center(
+                                        child: Text(
+                                          'No claimed QR codes yet.',
+                                          textAlign: TextAlign.center,
+                                          style: textTheme.bodyMedium?.copyWith(
+                                            color: colorScheme.onSurface,
+                                          ),
+                                        ),
+                                      )
+                                    : ListView.builder(
+                                        itemCount: _completed.length,
+                                        itemBuilder: (context, i) {
+                                          final e = _completed[i];
+                                          return _QrCodeListTile(
+                                            item: e,
+                                            colorScheme: colorScheme,
+                                            textTheme: textTheme,
+                                            isClaimed: true,
+                                          );
+                                        },
+                                      ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ),
-            ],
-          ),
         ),
       ],
     );
+  }
+}
+
+class _QrCodeListTile extends StatelessWidget {
+  const _QrCodeListTile({
+    required this.item,
+    required this.colorScheme,
+    required this.textTheme,
+    this.isClaimed = false,
+    this.onTap,
+  });
+
+  final QrCodeListItem item;
+  final ColorScheme colorScheme;
+  final TextTheme textTheme;
+  final bool isClaimed;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final date = item.createdAt != null
+        ? _formatDate(item.createdAt!)
+        : '—';
+    final usedInfo = isClaimed && item.usedAt != null
+        ? 'Claimed ${_formatDate(item.usedAt!)}'
+        : null;
+    Widget content = Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: colorScheme.outlineVariant),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  isClaimed ? Icons.check_circle : Icons.qr_code_2_outlined,
+                  size: 20,
+                  color: isClaimed
+                      ? colorScheme.primary
+                      : colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${item.totalWeight.toStringAsFixed(1)} kg · ${item.materialsCount} material(s)',
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Created $date',
+              style: textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            if (usedInfo != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                usedInfo,
+                style: textTheme.bodySmall?.copyWith(
+                  color: colorScheme.primary,
+                ),
+              ),
+            ],
+            const SizedBox(height: 2),
+            Text(
+              'ID: ${item.id}',
+              style: textTheme.labelSmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontFamily: 'monospace',
+              ),
+            ),
+            if (onTap != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Tap to show QR for scanning',
+                  style: textTheme.labelSmall?.copyWith(
+                    color: colorScheme.primary,
+                  ),
+                ),
+              ),
+          ],
+        ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: onTap != null
+          ? InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(12),
+              child: content,
+            )
+          : content,
+    );
+  }
+
+  static String _formatDate(DateTime d) {
+    return '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
   }
 }
 
@@ -1454,10 +2207,10 @@ class _MaterialRowState extends State<_MaterialRow> {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
       decoration: BoxDecoration(
-        color: selected ? const Color(0xFF0D9488).withOpacity(0.08) : null,
+        color: selected ? const Color(0xFF4CAF50).withOpacity(0.08) : null,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: selected ? const Color(0xFF0D9488).withOpacity(0.3) : Colors.grey.shade300,
+          color: selected ? const Color(0xFF4CAF50).withOpacity(0.3) : Colors.grey.shade300,
         ),
       ),
       child: Column(
@@ -1468,12 +2221,12 @@ class _MaterialRowState extends State<_MaterialRow> {
               Checkbox(
                 value: selected,
                 onChanged: (v) => widget.onChanged(v ?? false),
-                activeColor: const Color(0xFF0D9488),
+                activeColor: const Color(0xFF4CAF50),
               ),
               Icon(
                 widget.icon,
                 size: 22,
-                color: selected ? const Color(0xFF0D9488) : Colors.grey.shade600,
+                color: selected ? const Color(0xFF4CAF50) : Colors.grey.shade600,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -1560,12 +2313,12 @@ class _LogoHeader extends StatelessWidget {
         Container(
           width: 64,
           height: 64,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            gradient: const LinearGradient(
-              colors: [Color(0xFF0D9488), Color(0xFF065F46)],
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)],
+              ),
             ),
-          ),
           child: const Icon(
             Icons.recycling_rounded,
             color: Colors.white,
@@ -1789,11 +2542,11 @@ class _ChipTag extends StatelessWidget {
   Widget build(BuildContext context) {
     return Chip(
       label: Text(label),
-      backgroundColor: const Color(0xFFE0F2F1),
+      backgroundColor: const Color(0xFFE8F5E9),
       labelStyle: Theme.of(context)
           .textTheme
           .bodySmall
-          ?.copyWith(color: const Color(0xFF0D9488)),
+          ?.copyWith(color: const Color(0xFF4CAF50)),
     );
   }
 }
@@ -1829,21 +2582,35 @@ class _PrimarySaveButton extends StatelessWidget {
 }
 
 class _MaterialPill extends StatelessWidget {
-  const _MaterialPill({required this.icon, required this.label});
+  const _MaterialPill({
+    required this.icon,
+    required this.label,
+    this.selected = false,
+    this.onTap,
+  });
 
   final String icon;
   final String label;
+  final bool selected;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final selectedColor = Theme.of(context).colorScheme.primary;
+    final colorScheme = Theme.of(context).colorScheme;
+    final color = selected ? colorScheme.primary : colorScheme.onSurfaceVariant;
 
-    return Container(
+    final child = Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: selectedColor.withOpacity(0.08),
-        border: Border.all(color: selectedColor.withOpacity(0.4)),
+        color: selected
+            ? colorScheme.primary.withOpacity(0.12)
+            : colorScheme.surfaceContainerHighest,
+        border: Border.all(
+          color: selected
+              ? colorScheme.primary.withOpacity(0.5)
+              : colorScheme.outlineVariant,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1854,11 +2621,19 @@ class _MaterialPill extends StatelessWidget {
             label,
             style: TextStyle(
               fontWeight: FontWeight.w500,
-              color: selectedColor,
+              color: color,
             ),
           ),
         ],
       ),
     );
+
+    if (onTap != null) {
+      return GestureDetector(
+        onTap: onTap,
+        child: child,
+      );
+    }
+    return child;
   }
 }
