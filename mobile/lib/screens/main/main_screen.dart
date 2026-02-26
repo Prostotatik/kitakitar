@@ -5,14 +5,22 @@ import 'package:kitakitar_mobile/screens/leaders/leaders_screen.dart';
 import 'package:kitakitar_mobile/screens/profile/profile_screen.dart';
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+  final int? initialTab;
+
+  const MainScreen({super.key, this.initialTab});
 
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
 
 class _MainScreenState extends State<MainScreen> {
-  int _currentIndex = 0;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialTab ?? 0;
+  }
 
   final List<Widget> _screens = [
     const ScanScreen(),

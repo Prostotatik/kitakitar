@@ -25,11 +25,22 @@ class CenterModel {
 
   factory CenterModel.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    GeoPoint location;
+    final loc = data['location'];
+    if (loc is GeoPoint) {
+      location = loc;
+    } else if (loc is Map) {
+      final lat = (loc['lat'] as num?)?.toDouble() ?? 0.0;
+      final lng = (loc['lng'] as num?)?.toDouble() ?? 0.0;
+      location = GeoPoint(lat, lng);
+    } else {
+      location = const GeoPoint(0, 0);
+    }
     return CenterModel(
       id: doc.id,
       name: data['name'] ?? '',
       address: data['address'] ?? '',
-      location: data['location'] as GeoPoint,
+      location: location,
       manager: ManagerInfo.fromMap(data['manager'] ?? {}),
       points: data['points'] ?? 0,
       totalWeight: (data['totalWeight'] ?? 0).toDouble(),

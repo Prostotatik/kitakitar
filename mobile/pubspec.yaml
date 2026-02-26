@@ -39,7 +39,8 @@ dependencies:
   mobile_scanner: ^7.1.4
   qr_flutter: ^4.1.0
   
-  # Google AI (Vision API)
+  # Google AI (Gemini) for waste recognition
+  google_generative_ai: ^0.4.7
   http: ^1.1.2
   
   # UI

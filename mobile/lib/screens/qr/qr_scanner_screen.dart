@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:kitakitar_mobile/services/qr_service.dart';
+import 'package:kitakitar_mobile/providers/auth_provider.dart';
 
 class QrScannerScreen extends StatefulWidget {
   const QrScannerScreen({super.key});
@@ -14,21 +16,56 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
   final QRService _qrService = QRService();
   bool _isProcessing = false;
 
+  static const String _kQrPayloadPrefix = 'KITAKITAR_QR:';
+
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
   }
 
-  Future<void> _handleQRScan(String qrId) async {
+  Future<void> _handleQRScan(String rawValue) async {
     if (_isProcessing) return;
+
+    // Validate and extract QR id from payload
+    if (!rawValue.startsWith(_kQrPayloadPrefix)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid QR code. Please scan KitaKitar code.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final qrId = rawValue.substring(_kQrPayloadPrefix.length).trim();
+    if (qrId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid QR code payload.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final userId = Provider.of<AuthProvider>(context, listen: false).user?.uid;
+    if (userId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please log in to claim points.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _isProcessing = true;
     });
 
     try {
-      final result = await _qrService.scanQRCode(qrId);
+      final result = await _qrService.scanQRCode(qrId, userId);
 
       if (mounted) {
         Navigator.of(context).pop();

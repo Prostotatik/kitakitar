@@ -1,15 +1,19 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'package:kitakitar_mobile/models/ai_scan_model.dart';
+import 'package:kitakitar_mobile/providers/scan_filters_provider.dart';
 
 class ScanResultScreen extends StatelessWidget {
   final List<DetectedMaterial> detectedMaterials;
+  final String? preparationTip;
   final String? imagePath;
 
   const ScanResultScreen({
     super.key,
     required this.detectedMaterials,
+    this.preparationTip,
     this.imagePath,
   });
 
@@ -65,8 +69,7 @@ class ScanResultScreen extends StatelessWidget {
                     leading: const Icon(Icons.recycling, color: Color(0xFF4CAF50)),
                     title: Text(_getMaterialLabel(material.type)),
                     subtitle: Text(
-                      'Weight: ${material.estimatedWeight.toStringAsFixed(2)} kg\n'
-                      'Confidence: ${(material.confidence * 100).toStringAsFixed(0)}%',
+                      'Weight: ${material.estimatedWeight.toStringAsFixed(2)} kg',
                     ),
                     trailing: Text(
                       '${material.estimatedWeight.toStringAsFixed(2)} kg',
@@ -77,16 +80,44 @@ class ScanResultScreen extends StatelessWidget {
                     ),
                   ),
                 )),
+            if (preparationTip != null && preparationTip!.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Text(
+                'Preparation tip',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                color: Colors.blue.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.lightbulb_outline, color: Colors.blue.shade700, size: 24),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          preparationTip!,
+                          style: TextStyle(fontSize: 15, color: Colors.blue.shade900),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () {
-                  // Navigate to map with filters applied
-                  context.go('/');
-                  // Switch to map tab and pass filters
-                  // This would require state management to pass filters
-                  // For now, just navigate to main screen
+                  final provider = Provider.of<ScanFiltersProvider>(context, listen: false);
+                  provider.setScanFilters(detectedMaterials);
+                  context.go('/', extra: {'initialTab': 1});
                 },
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),

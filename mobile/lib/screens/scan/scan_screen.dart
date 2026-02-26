@@ -34,7 +34,7 @@ class _ScanScreenState extends State<ScanScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Выберите способ добавления фото',
+                'Choose how to add a photo',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -42,8 +42,8 @@ class _ScanScreenState extends State<ScanScreen> {
               const SizedBox(height: 24),
               ListTile(
                 leading: const Icon(Icons.camera_alt, color: Color(0xFF4CAF50)),
-                title: const Text('Сделать фото'),
-                subtitle: const Text('Сфотографировать мусор камерой'),
+                title: const Text('Take a photo'),
+                subtitle: const Text('Capture your waste with the camera'),
                 onTap: () {
                   Navigator.pop(context);
                   _pickAndProcessImage(ImageSource.camera);
@@ -51,8 +51,8 @@ class _ScanScreenState extends State<ScanScreen> {
               ),
               ListTile(
                 leading: const Icon(Icons.photo_library, color: Color(0xFF4CAF50)),
-                title: const Text('Выбрать из галереи'),
-                subtitle: const Text('Загрузить фото из библиотеки'),
+                title: const Text('Choose from gallery'),
+                subtitle: const Text('Upload a photo from your gallery'),
                 onTap: () {
                   Navigator.pop(context);
                   _pickAndProcessImage(ImageSource.gallery);
@@ -89,13 +89,14 @@ class _ScanScreenState extends State<ScanScreen> {
       );
 
       // Detect materials with AI
-      final detectedMaterials = await _aiService.detectMaterials(image.path);
+      final scanResult = await _aiService.detectMaterials(image.path);
 
       // Save AI scan to Firestore
       await _firestoreService.saveAiScan(
         userId,
         imageUrl,
-        detectedMaterials.map((m) => m.toMap()).toList(),
+        scanResult.materials.map((m) => m.toMap()).toList(),
+        preparationTip: scanResult.preparationTip,
       );
 
       if (mounted) {
@@ -105,7 +106,8 @@ class _ScanScreenState extends State<ScanScreen> {
 
         // Navigate to result screen
         context.push('/scan-result', extra: {
-          'detectedMaterials': detectedMaterials,
+          'detectedMaterials': scanResult.materials,
+          'preparationTip': scanResult.preparationTip,
           'imagePath': image.path,
         });
       }
@@ -164,7 +166,7 @@ class _ScanScreenState extends State<ScanScreen> {
                       ),
                       SizedBox(height: 24),
                       Text(
-                        'Нажмите для сканирования',
+                        'Tap to scan',
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.w500,
@@ -172,7 +174,7 @@ class _ScanScreenState extends State<ScanScreen> {
                       ),
                       SizedBox(height: 8),
                       Text(
-                        'Сфотографируйте или выберите фото мусора',
+                        'Take or choose a photo of your waste',
                         style: TextStyle(
                           fontSize: 16,
                           color: Colors.grey,

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:kitakitar_mobile/models/user_model.dart';
 import 'package:kitakitar_mobile/models/center_model.dart';
+import 'package:kitakitar_mobile/models/ai_scan_model.dart';
 
 class FirestoreService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -29,11 +30,7 @@ class FirestoreService {
   }
 
   // Centers
-  Stream<List<CenterModel>> getCentersStream({
-    List<String>? materialTypes,
-    double? minWeight,
-    double? maxWeight,
-  }) {
+  Stream<List<CenterModel>> getCentersStream() {
     Query query = _firestore
         .collection('centers')
         .where('isActive', isEqualTo: true);
@@ -46,9 +43,7 @@ class FirestoreService {
   }
 
   Future<List<CenterModel>> getCenters({
-    List<String>? materialTypes,
-    double? minWeight,
-    double? maxWeight,
+    Map<String, double?>? materialWeights,
   }) async {
     Query query = _firestore
         .collection('centers')
@@ -59,8 +54,13 @@ class FirestoreService {
         .map((doc) => CenterModel.fromFirestore(doc))
         .toList();
 
-    // Filter by materials if needed
-    if (materialTypes != null && materialTypes.isNotEmpty) {
+    // Filter by materials/weights if requested
+    final activeFilters = materialWeights
+            ?.entries
+            .where((e) => e.value != null)
+            .toList() ??
+        [];
+    if (activeFilters.isNotEmpty) {
       final filteredCenters = <CenterModel>[];
       for (final center in centers) {
         final materialsSnapshot = await _firestore
@@ -71,7 +71,15 @@ class FirestoreService {
 
         final hasMaterial = materialsSnapshot.docs.any((doc) {
           final material = CenterMaterial.fromFirestore(doc);
-          return materialTypes.contains(material.type);
+          // A center matches if it can accept at least one of the
+          // requested (materialType, weight) pairs.
+          return activeFilters.any((f) {
+            final requestedType = f.key;
+            final requestedWeight = f.value!;
+            if (material.type != requestedType) return false;
+            return requestedWeight >= material.minWeight &&
+                requestedWeight <= material.maxWeight;
+          });
         });
 
         if (hasMaterial) {
@@ -82,6 +90,44 @@ class FirestoreService {
     }
 
     return centers;
+  }
+
+  /// Returns centers that accept at least one of the detected materials:
+  /// for each (type, weight) the center must have a material with that type
+  /// and weight within [minWeight, maxWeight] of that material.
+  Future<List<CenterModel>> getCentersForDetectedMaterials(
+    List<DetectedMaterial> detected,
+  ) async {
+    if (detected.isEmpty) return getCenters();
+
+    final snapshot = await _firestore
+        .collection('centers')
+        .where('isActive', isEqualTo: true)
+        .get();
+
+    final result = <CenterModel>[];
+    for (final doc in snapshot.docs) {
+      final center = CenterModel.fromFirestore(doc);
+      final materialsSnapshot = await _firestore
+          .collection('centers')
+          .doc(center.id)
+          .collection('materials')
+          .get();
+
+      final centerMaterials = materialsSnapshot.docs
+          .map((d) => CenterMaterial.fromFirestore(d))
+          .toList();
+
+      final acceptsAtLeastOne = detected.any((d) {
+        return centerMaterials.any((m) =>
+            m.acceptsMaterial(d.type, d.estimatedWeight));
+      });
+
+      if (acceptsAtLeastOne) {
+        result.add(center);
+      }
+    }
+    return result;
   }
 
   Future<List<CenterMaterial>> getCenterMaterials(String centerId) async {
@@ -100,12 +146,14 @@ class FirestoreService {
   Future<void> saveAiScan(
     String userId,
     String imageUrl,
-    List<Map<String, dynamic>> detectedMaterials,
-  ) async {
+    List<Map<String, dynamic>> detectedMaterials, {
+    String? preparationTip,
+  }) async {
     await _firestore.collection('ai_scans').add({
       'userId': userId,
       'imageUrl': imageUrl,
       'detectedMaterials': detectedMaterials,
+      if (preparationTip != null) 'preparationTip': preparationTip,
       'createdAt': FieldValue.serverTimestamp(),
     });
   }

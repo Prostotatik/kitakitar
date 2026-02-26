@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:provider/provider.dart';
 import 'package:kitakitar_mobile/services/maps_service.dart';
 import 'package:kitakitar_mobile/services/firestore_service.dart';
 import 'package:kitakitar_mobile/models/center_model.dart';
+import 'package:kitakitar_mobile/providers/scan_filters_provider.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -16,10 +18,67 @@ class _MapScreenState extends State<MapScreen> {
   final FirestoreService _firestoreService = FirestoreService();
   GoogleMapController? _mapController;
   List<CenterModel> _centers = [];
-  final Set<String> _selectedMaterials = {};
-  double? _minWeight;
-  double? _maxWeight;
+
+  /// Material types and labels (match center_web).
+  static const List<Map<String, String>> _materialTypes = [
+    {'type': 'paper', 'label': 'Paper / Cardboard'},
+    {'type': 'plastic', 'label': 'Plastics'},
+    {'type': 'glass', 'label': 'Glass'},
+    {'type': 'aluminum', 'label': 'Aluminum'},
+    {'type': 'batteries', 'label': 'Batteries'},
+    {'type': 'electronics', 'label': 'Electronics'},
+    {'type': 'food', 'label': 'Food'},
+    {'type': 'lawn', 'label': 'Lawn Materials'},
+    {'type': 'used_oil', 'label': 'Used Oil'},
+    {'type': 'hazardous_waste', 'label': 'Household Hazardous Waste'},
+    {'type': 'tires', 'label': 'Tires'},
+    {'type': 'metal', 'label': 'Metal'},
+  ];
+
+  // type -> requested weight (kg). If value is null, weight is not set.
+  final Map<String, double?> _materialWeights = {
+    for (final m in _MapScreenState._materialTypes) m['type']!: null,
+  };
+
+  // type -> whether this material is enabled in filters.
+  final Map<String, bool> _materialSelected = {
+    for (final m in _MapScreenState._materialTypes) m['type']!: false,
+  };
+
   bool _showFilters = false;
+  bool _scanFiltersApplied = false;
+
+  String _materialLabel(String type) {
+    final entry = _materialTypes.firstWhere(
+      (m) => m['type'] == type,
+      orElse: () => {'label': type},
+    );
+    return entry['label']!;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _applyScanFiltersIfNeeded();
+  }
+
+  void _applyScanFiltersIfNeeded() {
+    final provider = Provider.of<ScanFiltersProvider>(context, listen: false);
+    if (provider.hasFilters && !_scanFiltersApplied) {
+      _scanFiltersApplied = true;
+      final materials = provider.detectedMaterials!;
+      setState(() {
+        for (final m in materials) {
+          if (_materialWeights.containsKey(m.type)) {
+            _materialSelected[m.type] = true;
+            _materialWeights[m.type] = m.estimatedWeight;
+          }
+        }
+        _showFilters = true;
+      });
+      _loadCenters();
+    }
+  }
 
   @override
   void initState() {
@@ -28,14 +87,29 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _loadCenters() async {
-    final centers = await _firestoreService.getCenters(
-      materialTypes: _selectedMaterials.isEmpty ? null : _selectedMaterials.toList(),
-      minWeight: _minWeight,
-      maxWeight: _maxWeight,
-    );
-    setState(() {
-      _centers = centers;
-    });
+    final provider = Provider.of<ScanFiltersProvider>(context, listen: false);
+    final List<CenterModel> centers;
+    if (provider.hasFilters && provider.detectedMaterials != null) {
+      centers = await _firestoreService.getCentersForDetectedMaterials(
+        provider.detectedMaterials!,
+      );
+    } else {
+      // Build filters only from enabled materials with a specified weight.
+      final filters = <String, double>{};
+      _materialWeights.forEach((type, weight) {
+        if ((_materialSelected[type] ?? false) && weight != null) {
+          filters[type] = weight;
+        }
+      });
+      centers = await _firestoreService.getCenters(
+        materialWeights: filters.isEmpty ? null : filters,
+      );
+    }
+    if (mounted) {
+      setState(() {
+        _centers = centers;
+      });
+    }
   }
 
   Set<Marker> _buildMarkers() {
@@ -49,9 +123,112 @@ class _MapScreenState extends State<MapScreen> {
         infoWindow: InfoWindow(
           title: center.name,
           snippet: center.address,
+          onTap: () => _showCenterDetails(center),
         ),
+        onTap: () => _showCenterDetails(center),
       );
     }).toSet();
+  }
+
+  Future<void> _showCenterDetails(CenterModel center) async {
+    final materials =
+        await _firestoreService.getCenterMaterials(center.id);
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  center.name,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  center.address,
+                  style: const TextStyle(fontSize: 14),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(Icons.stars_rounded, size: 18, color: Color(0xFF4CAF50)),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${center.points} pts',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(width: 12),
+                    const Icon(Icons.scale, size: 18, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${center.totalWeight.toStringAsFixed(1)} kg collected',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Manager',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  center.manager.name,
+                  style: const TextStyle(fontSize: 14),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  center.manager.phone,
+                  style: const TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Accepted materials',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (materials.isEmpty)
+                  const Text('No materials configured for this center.')
+                else
+                  Column(
+                    children: materials.map((m) {
+                      final priceText = (m.pricePerKg ?? 0) <= 0
+                          ? 'Free'
+                          : '${m.pricePerKg!.toStringAsFixed(2)} / kg';
+                      return ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(_materialLabel(m.type)),
+                        subtitle: Text(
+                          'From ${m.minWeight.toStringAsFixed(1)} kg '
+                          'to ${m.maxWeight.toStringAsFixed(1)} kg • $priceText',
+                        ),
+                      );
+                    }).toList(),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -74,8 +251,9 @@ class _MapScreenState extends State<MapScreen> {
         children: [
           GoogleMap(
             initialCameraPosition: const CameraPosition(
-              target: LatLng(41.2995, 69.2401), // Tashkent default
-              zoom: 12,
+              // Default to Malaysia center (same as center_web)
+              target: LatLng(4.21, 101.98),
+              zoom: 6,
             ),
             markers: _buildMarkers(),
             onMapCreated: (controller) {
@@ -103,56 +281,69 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 8,
-                      children: ['plastic', 'paper', 'glass', 'metal']
-                          .map((material) => FilterChip(
-                                label: Text(material),
-                                selected: _selectedMaterials.contains(material),
-                                onSelected: (selected) {
+                    Column(
+                      children: _materialWeights.keys.map((material) {
+                        final isSelected = _materialSelected[material] ?? false;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              Checkbox(
+                                value: isSelected,
+                                onChanged: (value) {
                                   setState(() {
-                                    if (selected) {
-                                      _selectedMaterials.add(material);
-                                    } else {
-                                      _selectedMaterials.remove(material);
+                                    final v = value ?? false;
+                                    _materialSelected[material] = v;
+                                    if (!v) {
+                                      _materialWeights[material] = null;
                                     }
                                   });
                                   _loadCenters();
                                 },
-                              ))
-                          .toList(),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            decoration: const InputDecoration(
-                              labelText: 'Min. weight (kg)',
-                              border: OutlineInputBorder(),
-                            ),
-                            keyboardType: TextInputType.number,
-                            onChanged: (value) {
-                              _minWeight = double.tryParse(value);
-                              _loadCenters();
-                            },
+                              ),
+                              Expanded(
+                                child: Text(
+                                  _materialLabel(material),
+                                  style: const TextStyle(fontSize: 16),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              SizedBox(
+                                width: 140,
+                                child: TextField(
+                                  enabled: isSelected,
+                                  decoration: InputDecoration(
+                                    labelText: 'Weight (kg)',
+                                    hintText: 'e.g. 2.5',
+                                    border: const OutlineInputBorder(),
+                                    isDense: true,
+                                    suffixIcon: _materialWeights[material] != null && isSelected
+                                        ? IconButton(
+                                            icon: const Icon(Icons.clear),
+                                            onPressed: () {
+                                              setState(() {
+                                                _materialWeights[material] = null;
+                                              });
+                                              _loadCenters();
+                                              FocusScope.of(context).unfocus();
+                                            },
+                                          )
+                                        : null,
+                                  ),
+                                  keyboardType: TextInputType.number,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _materialWeights[material] =
+                                          value.trim().isEmpty ? null : double.tryParse(value);
+                                    });
+                                    _loadCenters();
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: TextField(
-                            decoration: const InputDecoration(
-                              labelText: 'Max. weight (kg)',
-                              border: OutlineInputBorder(),
-                            ),
-                            keyboardType: TextInputType.number,
-                            onChanged: (value) {
-                              _maxWeight = double.tryParse(value);
-                              _loadCenters();
-                            },
-                          ),
-                        ),
-                      ],
+                        );
+                      }).toList(),
                     ),
                   ],
                 ),

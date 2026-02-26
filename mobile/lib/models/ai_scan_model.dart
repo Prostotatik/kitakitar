@@ -1,19 +1,16 @@
 class DetectedMaterial {
   final String type;
   final double estimatedWeight;
-  final double confidence;
 
   DetectedMaterial({
     required this.type,
     required this.estimatedWeight,
-    required this.confidence,
   });
 
   Map<String, dynamic> toMap() {
     return {
       'type': type,
       'estimatedWeight': estimatedWeight,
-      'confidence': confidence,
     };
   }
 
@@ -21,7 +18,36 @@ class DetectedMaterial {
     return DetectedMaterial(
       type: map['type'] ?? '',
       estimatedWeight: (map['estimatedWeight'] ?? 0).toDouble(),
-      confidence: (map['confidence'] ?? 0).toDouble(),
+    );
+  }
+}
+
+/// Result of AI scan: materials + optional preparation tip for drop-off.
+class ScanResult {
+  final List<DetectedMaterial> materials;
+  final String? preparationTip;
+
+  ScanResult({
+    required this.materials,
+    this.preparationTip,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'detectedMaterials': materials.map((m) => m.toMap()).toList(),
+      if (preparationTip != null) 'preparationTip': preparationTip,
+    };
+  }
+
+  factory ScanResult.fromMap(Map<String, dynamic> map) {
+    final list = map['detectedMaterials'] as List?;
+    final materials = list
+            ?.map((e) => DetectedMaterial.fromMap(Map<String, dynamic>.from(e as Map)))
+            .toList() ??
+        [];
+    return ScanResult(
+      materials: materials,
+      preparationTip: map['preparationTip'] as String?,
     );
   }
 }
