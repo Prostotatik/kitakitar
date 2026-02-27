@@ -45,8 +45,12 @@ class _MapScreenState extends State<MapScreen> {
     for (final m in _MapScreenState._materialTypes) m['type']!: false,
   };
 
+  // Controllers for weight TextFields so programmatic updates are reflected in UI.
+  late final Map<String, TextEditingController> _weightControllers;
+
   bool _showFilters = false;
-  bool _scanFiltersApplied = false;
+  // Tracks which scanVersion has already been applied to avoid re-applying same scan.
+  int _lastAppliedScanVersion = 0;
 
   String _materialLabel(String type) {
     final entry = _materialTypes.firstWhere(
@@ -57,54 +61,72 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _weightControllers = {
+      for (final m in _MapScreenState._materialTypes)
+        m['type']!: TextEditingController(),
+    };
+    _loadCenters();
+  }
+
+  @override
+  void dispose() {
+    for (final c in _weightControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _applyScanFiltersIfNeeded();
   }
 
   void _applyScanFiltersIfNeeded() {
-    final provider = Provider.of<ScanFiltersProvider>(context, listen: false);
-    if (provider.hasFilters && !_scanFiltersApplied) {
-      _scanFiltersApplied = true;
+    // listen: true — subscribes MapScreen to provider changes so didChangeDependencies
+    // is triggered whenever setScanFilters is called (new scan result arrives).
+    final provider = Provider.of<ScanFiltersProvider>(context);
+    if (provider.hasFilters && provider.scanVersion != _lastAppliedScanVersion) {
+      _lastAppliedScanVersion = provider.scanVersion;
       final materials = provider.detectedMaterials!;
-      setState(() {
-        for (final m in materials) {
-          if (_materialWeights.containsKey(m.type)) {
-            _materialSelected[m.type] = true;
-            _materialWeights[m.type] = m.estimatedWeight;
-          }
+
+      // Reset all filters first, then apply only the detected ones.
+      for (final type in _materialSelected.keys) {
+        _materialSelected[type] = false;
+        _materialWeights[type] = null;
+        _weightControllers[type]?.clear();
+      }
+
+      for (final m in materials) {
+        if (_materialWeights.containsKey(m.type)) {
+          _materialSelected[m.type] = true;
+          _materialWeights[m.type] = m.estimatedWeight;
+          _weightControllers[m.type]?.text =
+              m.estimatedWeight.toStringAsFixed(2);
         }
+      }
+
+      setState(() {
         _showFilters = true;
       });
       _loadCenters();
     }
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _loadCenters();
-  }
-
   Future<void> _loadCenters() async {
-    final provider = Provider.of<ScanFiltersProvider>(context, listen: false);
-    final List<CenterModel> centers;
-    if (provider.hasFilters && provider.detectedMaterials != null) {
-      centers = await _firestoreService.getCentersForDetectedMaterials(
-        provider.detectedMaterials!,
-      );
-    } else {
-      // Build filters only from enabled materials with a specified weight.
-      final filters = <String, double>{};
-      _materialWeights.forEach((type, weight) {
-        if ((_materialSelected[type] ?? false) && weight != null) {
-          filters[type] = weight;
-        }
-      });
-      centers = await _firestoreService.getCenters(
-        materialWeights: filters.isEmpty ? null : filters,
-      );
-    }
+    // Always use local filter state (checkboxes + weights). Scan result only
+    // populates that state; once user changes filters on map, we respect their choices.
+    final filters = <String, double>{};
+    _materialWeights.forEach((type, weight) {
+      if ((_materialSelected[type] ?? false) && weight != null) {
+        filters[type] = weight;
+      }
+    });
+    final List<CenterModel> centers = await _firestoreService.getCenters(
+      materialWeights: filters.isEmpty ? null : filters,
+    );
     if (mounted) {
       setState(() {
         _centers = centers;
@@ -311,6 +333,7 @@ class _MapScreenState extends State<MapScreen> {
                               SizedBox(
                                 width: 140,
                                 child: TextField(
+                                  controller: _weightControllers[material],
                                   enabled: isSelected,
                                   decoration: InputDecoration(
                                     labelText: 'Weight (kg)',
@@ -323,6 +346,7 @@ class _MapScreenState extends State<MapScreen> {
                                             onPressed: () {
                                               setState(() {
                                                 _materialWeights[material] = null;
+                                                _weightControllers[material]?.clear();
                                               });
                                               _loadCenters();
                                               FocusScope.of(context).unfocus();

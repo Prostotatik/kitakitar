@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:kitakitar_mobile/providers/scan_filters_provider.dart';
 import 'package:kitakitar_mobile/screens/scan/scan_screen.dart';
 import 'package:kitakitar_mobile/screens/map/map_screen.dart';
 import 'package:kitakitar_mobile/screens/leaders/leaders_screen.dart';
@@ -16,18 +18,34 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   late int _currentIndex;
 
-  @override
-  void initState() {
-    super.initState();
-    _currentIndex = widget.initialTab ?? 0;
-  }
-
   final List<Widget> _screens = [
     const ScanScreen(),
     const MapScreen(),
     const LeadersScreen(),
     const ProfileScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialTab ?? 0;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Listen to provider: when user taps "Show on Map" from scan result,
+    // shouldSwitchToMap becomes true and we switch to the map tab.
+    final provider = Provider.of<ScanFiltersProvider>(context);
+    if (provider.shouldSwitchToMap) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _currentIndex = 1);
+        Provider.of<ScanFiltersProvider>(context, listen: false)
+            .clearSwitchToMapFlag();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -6,15 +6,20 @@ import 'package:kitakitar_mobile/models/ai_scan_model.dart';
 class ScanFiltersProvider extends ChangeNotifier {
   List<DetectedMaterial>? _detectedMaterials;
   bool _shouldSwitchToMap = false;
+  int _scanVersion = 0;
 
   List<DetectedMaterial>? get detectedMaterials => _detectedMaterials;
   bool get shouldSwitchToMap => _shouldSwitchToMap;
   bool get hasFilters => _detectedMaterials != null && _detectedMaterials!.isNotEmpty;
 
+  /// Increments each time setScanFilters is called so MapScreen can detect new scans.
+  int get scanVersion => _scanVersion;
+
   /// Set filters from scan result. Call when user taps "Show on Map".
   void setScanFilters(List<DetectedMaterial> materials) {
     _detectedMaterials = materials;
     _shouldSwitchToMap = true;
+    _scanVersion++;
     notifyListeners();
   }
 

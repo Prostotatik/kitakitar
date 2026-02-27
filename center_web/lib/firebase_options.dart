@@ -4,12 +4,12 @@ import 'package:flutter/foundation.dart'
 
 /// Firebase options for center_web.
 ///
-/// Важно: для полноценной web-конфигурации лучше прогнать `flutterfire configure`
-/// из папки `center_web` и заменить значения ниже на реальные.
+/// Important: for a full web configuration it is better to run `flutterfire configure`
+/// from the `center_web` folder and replace the values below with real ones.
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      // Для web можно использовать те же ключи проекта, что и для Android mobile.
+      // For web you can use the same project keys as for Android mobile.
       return web;
     }
     switch (defaultTargetPlatform) {
@@ -24,10 +24,10 @@ class DefaultFirebaseOptions {
     }
   }
 
-  // Используем те же данные, что и в mobile/android (можно вынести в .env при желании)
+  // We use the same values as in mobile/android (can be moved to .env if desired)
   static const FirebaseOptions web = FirebaseOptions(
     apiKey: 'AIzaSyAjFzxXkd8ejk9YnuhxUU-YnaNepxIEXtk',
-    appId: '1:313112928368:web:center_web_dummy_app', // можно заменить после flutterfire configure
+    appId: '1:313112928368:web:center_web_dummy_app', // can be replaced after flutterfire configure
     messagingSenderId: '313112928368',
     projectId: 'kitakitar',
     storageBucket: 'kitakitar.firebasestorage.app',

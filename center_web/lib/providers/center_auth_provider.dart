@@ -3,12 +3,12 @@ import 'package:flutter/foundation.dart';
 
 import '../services/center_auth_service.dart';
 
-/// Provider-подобный слой для центра переработки (web).
+/// Provider-like layer for the recycling center (web).
 ///
-/// Держит в себе:
-/// - текущего Firebase `User`;
-/// - состояние загрузки/ошибок;
-/// - методы login/register/reset/signOut.
+/// Holds:
+/// - current Firebase `User`;
+/// - loading/error state;
+/// - methods login/register/reset/signOut.
 class CenterAuthProvider with ChangeNotifier {
   final CenterAuthService _authService = CenterAuthService();
 

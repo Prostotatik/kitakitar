@@ -158,13 +158,25 @@ class FirestoreService {
     });
   }
 
-  // Leaderboards
-  Stream<QuerySnapshot> getLeaderboard(String type) {
+  // Leaderboards (mobile app)
+  //
+  // Cache in /leaderboards in idea.md is optional, so
+  // for the mobile client it is simpler and more reliable to read
+  // directly from the base collections /users and /centers, sorting
+  // by the required field.
+  //
+  // [type]   - "users" or "centers"
+  // [metric] - field to sort by, "points" by default
+  Stream<QuerySnapshot> getLeaderboard(
+    String type, {
+    String metric = 'points',
+  }) {
+    final String collection =
+        type == 'centers' ? 'centers' : 'users';
+
     return _firestore
-        .collection('leaderboards')
-        .doc('${type}_all_time')
-        .collection('items')
-        .orderBy('points', descending: true)
+        .collection(collection)
+        .orderBy(metric, descending: true)
         .limit(100)
         .snapshots();
   }

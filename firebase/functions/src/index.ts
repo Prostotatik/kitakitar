@@ -19,7 +19,8 @@ type TransactionDraft = {
 
 // --- CONFIG ---
 
-const BASE_MULTIPLIER = 100; // points per kg (пример, можешь поменять)
+// Base multiplier for points per kg (you can change it).
+const BASE_MULTIPLIER = 100;
 
 // --- HELPERS ---
 
@@ -49,12 +50,12 @@ function aggregateStats(
 // --- HTTP callable: onQrScan ---
 
 /**
- * Mobile клиент вызывает эту функцию после сканирования QR.
- * Вход:
+ * Mobile client calls this function after scanning a QR code.
+ * Input:
  *  - qrId: string
  *
- * Требования:
- *  - auth обязателен (role=user)
+ * Requirements:
+ *  - auth is required (role=user)
  */
 export const onQrScan = functions.https.onCall(async (data, context) => {
   const uid = context.auth?.uid;
@@ -112,12 +113,12 @@ export const onQrScan = functions.https.onCall(async (data, context) => {
       const totalWeight = transactionDraft.totalWeight || 0;
 
       const pointsUser = calculatePoints(materials);
-      const pointsCenter = pointsUser; // можно сделать разную формулу
+      const pointsCenter = pointsUser; // you can use a different formula
 
       const transactionRef = db.collection("transactions").doc();
       const now = admin.firestore.FieldValue.serverTimestamp();
 
-      // Создаём транзакцию
+      // Create transaction
       tx.set(transactionRef, {
         userId: uid,
         centerId,
@@ -129,7 +130,7 @@ export const onQrScan = functions.https.onCall(async (data, context) => {
         qrCodeId: qrId,
       });
 
-      // Обновляем пользователя
+      // Update user
       const userRef = db.collection("users").doc(uid);
       const userSnap = await tx.get(userRef);
       const userData = userSnap.data() || {};
@@ -146,7 +147,7 @@ export const onQrScan = functions.https.onCall(async (data, context) => {
         {merge: true},
       );
 
-      // Обновляем центр
+      // Update center
       const centerRef = db.collection("centers").doc(centerId);
       const centerSnap = await tx.get(centerRef);
       const centerData = centerSnap.data() || {};
@@ -161,7 +162,7 @@ export const onQrScan = functions.https.onCall(async (data, context) => {
         {merge: true},
       );
 
-      // Помечаем QR как использованный
+      // Mark QR as used
       tx.update(qrRef, {
         used: true,
         usedBy: uid,
@@ -191,11 +192,11 @@ export const onQrScan = functions.https.onCall(async (data, context) => {
 // --- HTTP callable: createQrForCenter ---
 
 /**
- * Вызывается web‑админкой центра при создании нового приёма.
- * Создаёт документ в /qr_codes с черновиком транзакции.
+ * Called by the center web admin when creating a new intake.
+ * Creates a document in /qr_codes with a draft transaction.
  *
- * Вход:
- *  - centerId: string (обычно == uid центра)
+ * Input:
+ *  - centerId: string (usually == center uid)
  *  - materials: MaterialEntry[]
  *  - totalWeight: number
  */
@@ -247,17 +248,17 @@ export const createQrForCenter = functions.https.onCall(
   },
 );
 
-// --- TRIGGER: onTransactionCreate (опциональная доп. логика) ---
+// --- TRIGGER: onTransactionCreate (optional extra logic) ---
 
 export const onTransactionCreate = functions.firestore
   .document("transactions/{transactionId}")
   .onCreate(async (snap, context) => {
     const data = snap.data();
     console.log("New transaction created", context.params.transactionId, data);
-    // Здесь можно:
-    // - слать уведомления
-    // - логировать в BigQuery
-    // - строить дополнительные агрегаты
+    // Here you can:
+    // - send notifications
+    // - log to BigQuery
+    // - build additional aggregates
   });
 
 // --- SCHEDULE: updateLeaderboards ---
@@ -265,7 +266,7 @@ export const onTransactionCreate = functions.firestore
 export const updateLeaderboards = functions.pubsub
   .schedule("every 15 minutes")
   .onRun(async () => {
-    // Пример: leaderboard по points для users и centers (all-time)
+    // Example: leaderboard by points for users and centers (all-time)
     const usersSnap = await db
       .collection("users")
       .orderBy("points", "desc")
@@ -319,7 +320,7 @@ export const cleanupExpiredQr = functions.pubsub
   .schedule("every 24 hours")
   .onRun(async () => {
     const cutoff = admin.firestore.Timestamp.fromMillis(
-      Date.now() - 1000 * 60 * 60 * 24 * 7, // 7 дней
+      Date.now() - 1000 * 60 * 60 * 24 * 7, // 7 days
     );
 
     const snap = await db

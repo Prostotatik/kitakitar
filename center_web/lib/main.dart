@@ -92,7 +92,7 @@ class CenterWebApp extends StatelessWidget {
 }
 
 enum _AuthMode { login, register, forgot }
-/// Root shell that switches between auth and dashboard, опираясь на CenterAuthProvider.
+/// Root shell that switches between auth and dashboard, based on CenterAuthProvider.
 class _RootShell extends StatefulWidget {
   const _RootShell();
 
@@ -310,7 +310,7 @@ class _RegisterCenterPageState extends State<RegisterCenterPage> {
   double? _lat;
   double? _lng;
   bool _isSubmitting = false;
-  /// type -> (minKg, maxKg, pricePerKg); только выбранные материалы.
+  /// type -> (minKg, maxKg, pricePerKg); only selected materials.
   final Map<String, ({double minKg, double maxKg, double pricePerKg})> _materials = {};
 
   @override
@@ -452,8 +452,8 @@ class _RegisterCenterPageState extends State<RegisterCenterPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Center registered successfully.')),
       );
-      // После успешной регистрации auth.isAuthenticated уже true,
-      // _RootShell автоматически переведёт пользователя в Dashboard.
+      // After successful registration auth.isAuthenticated is already true,
+      // _RootShell will automatically navigate the user to the Dashboard.
     } catch (e) {
       if (!mounted) return;
       setState(() {
