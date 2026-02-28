@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:kitakitar_mobile/models/ai_scan_model.dart';
 import 'package:kitakitar_mobile/providers/scan_filters_provider.dart';
 
@@ -9,12 +10,14 @@ class ScanResultScreen extends StatelessWidget {
   final List<DetectedMaterial> detectedMaterials;
   final String? preparationTip;
   final String? imagePath;
+  final String? imageUrl;
 
   const ScanResultScreen({
     super.key,
     required this.detectedMaterials,
     this.preparationTip,
     this.imagePath,
+    this.imageUrl,
   });
 
   String _getMaterialLabel(String type) {
@@ -43,15 +46,32 @@ class ScanResultScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (imagePath != null) ...[
+            if (imagePath != null || imageUrl != null) ...[
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.file(
-                  File(imagePath!),
-                  width: double.infinity,
-                  height: 300,
-                  fit: BoxFit.cover,
-                ),
+                child: imagePath != null
+                    ? Image.file(
+                        File(imagePath!),
+                        width: double.infinity,
+                        height: 300,
+                        fit: BoxFit.cover,
+                      )
+                    : CachedNetworkImage(
+                        imageUrl: imageUrl!,
+                        width: double.infinity,
+                        height: 300,
+                        fit: BoxFit.cover,
+                        placeholder: (_, __) => Container(
+                          height: 300,
+                          color: Colors.grey.shade200,
+                          child: const Center(child: CircularProgressIndicator()),
+                        ),
+                        errorWidget: (_, __, ___) => Container(
+                          height: 300,
+                          color: Colors.grey.shade200,
+                          child: const Icon(Icons.broken_image, size: 48),
+                        ),
+                      ),
               ),
               const SizedBox(height: 24),
             ],

@@ -11,6 +11,7 @@ import 'package:kitakitar_mobile/screens/auth/register_screen.dart';
 import 'package:kitakitar_mobile/screens/auth/forgot_password_screen.dart';
 import 'package:kitakitar_mobile/screens/main/main_screen.dart';
 import 'package:kitakitar_mobile/screens/scan/scan_result_screen.dart';
+import 'package:kitakitar_mobile/screens/scan/scan_history_screen.dart';
 import 'package:kitakitar_mobile/models/ai_scan_model.dart';
 import 'package:kitakitar_mobile/screens/qr/qr_scanner_screen.dart';
 
@@ -144,8 +145,13 @@ final GoRouter _router = GoRouter(
           detectedMaterials: materials,
           preparationTip: args?['preparationTip'] as String?,
           imagePath: args?['imagePath'] as String?,
+          imageUrl: args?['imageUrl'] as String?,
         );
       },
+    ),
+    GoRoute(
+      path: '/scan-history',
+      builder: (context, state) => const ScanHistoryScreen(),
     ),
     GoRoute(
       path: '/qr-scanner',

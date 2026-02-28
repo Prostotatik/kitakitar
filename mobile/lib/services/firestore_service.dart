@@ -158,6 +158,29 @@ class FirestoreService {
     });
   }
 
+  Stream<List<ScanHistoryItem>> getScanHistory(String userId) {
+    return _firestore
+        .collection('ai_scans')
+        .where('userId', isEqualTo: userId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) {
+              final data = doc.data();
+              final rawMaterials = data['detectedMaterials'] as List? ?? [];
+              return ScanHistoryItem(
+                id: doc.id,
+                imageUrl: data['imageUrl'] ?? '',
+                materials: rawMaterials
+                    .map((e) => DetectedMaterial.fromMap(
+                        Map<String, dynamic>.from(e as Map)))
+                    .toList(),
+                preparationTip: data['preparationTip'] as String?,
+                createdAt: (data['createdAt'] as Timestamp?)?.toDate() ??
+                    DateTime.now(),
+              );
+            }).toList());
+  }
+
   // Leaderboards (mobile app)
   //
   // Cache in /leaderboards in idea.md is optional, so

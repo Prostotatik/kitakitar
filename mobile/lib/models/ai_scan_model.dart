@@ -52,3 +52,23 @@ class ScanResult {
   }
 }
 
+/// Persisted scan history entry from Firestore ai_scans collection.
+class ScanHistoryItem {
+  final String id;
+  final String imageUrl;
+  final List<DetectedMaterial> materials;
+  final String? preparationTip;
+  final DateTime createdAt;
+
+  ScanHistoryItem({
+    required this.id,
+    required this.imageUrl,
+    required this.materials,
+    this.preparationTip,
+    required this.createdAt,
+  });
+
+  String get materialsSummary =>
+      materials.map((m) => m.type).join(', ');
+}
+

@@ -129,61 +129,75 @@ class _ScanScreenState extends State<ScanScreen> {
       appBar: AppBar(
         title: const Text('Scan'),
       ),
-      body: GestureDetector(
-        onTap: _isProcessing ? null : _showImageSourcePicker,
-        child: Container(
-          width: double.infinity,
-          height: double.infinity,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.green.shade50,
-                Colors.green.shade100,
-              ],
+      body: Stack(
+        children: [
+          GestureDetector(
+            onTap: _isProcessing ? null : _showImageSourcePicker,
+            child: Container(
+              width: double.infinity,
+              height: double.infinity,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.green.shade50,
+                    Colors.green.shade100,
+                  ],
+                ),
+              ),
+              child: _isProcessing
+                  ? const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircularProgressIndicator(),
+                          SizedBox(height: 16),
+                          Text('Processing image...'),
+                        ],
+                      ),
+                    )
+                  : const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.camera_alt,
+                            size: 100,
+                            color: Color(0xFF4CAF50),
+                          ),
+                          SizedBox(height: 24),
+                          Text(
+                            'Tap to scan',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            'Take or choose a photo of your waste',
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
             ),
           ),
-          child: _isProcessing
-              ? const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text('Processing image...'),
-                    ],
-                  ),
-                )
-              : const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.camera_alt,
-                        size: 100,
-                        color: Color(0xFF4CAF50),
-                      ),
-                      SizedBox(height: 24),
-                      Text(
-                        'Tap to scan',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Take or choose a photo of your waste',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-        ),
+          Positioned(
+            left: 16,
+            bottom: 24,
+            child: FloatingActionButton(
+              heroTag: 'scan_history',
+              backgroundColor: Colors.white,
+              onPressed: () => context.push('/scan-history'),
+              child: const Icon(Icons.history, color: Color(0xFF4CAF50)),
+            ),
+          ),
+        ],
       ),
     );
   }
