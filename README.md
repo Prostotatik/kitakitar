@@ -1,6 +1,24 @@
 # KitaKitar - Recycling App
 
-A Flutter project consisting of a **mobile app** for clients who want to recycle waste and a **web admin panel** for recycling center managers. Built with Flutter and Firebase.
+## Project Description
+
+**KitaKitar** (Malay for "We Recycle") is an AI-powered recycling platform that makes waste sorting and recycling accessible to everyone. The project addresses a critical problem: **low recycling rates driven by lack of knowledge, inconvenience, and weak incentives**. Many people want to recycle but don't know how to sort waste correctly, where to bring it, or why it matters.
+
+KitaKitar solves this with a two-part system:
+- A **mobile app** where users scan their waste with a phone camera, get instant AI-powered material recognition and preparation tips, find nearby recycling centers on a map, and earn reward points for each drop-off.
+- A **web admin panel** where recycling center managers register their locations, manage accepted materials, and process incoming transactions.
+
+### Alignment with AI and SDGs
+
+This project is built around **SDG 13: Climate Action**. Improper waste disposal and low recycling rates contribute to greenhouse gas emissions from landfills and incineration, accelerating climate change. By making recycling easier and more rewarding, KitaKitar directly supports climate action at the community level.
+
+**AI plays a central role** in lowering the barrier to recycling:
+- **Gemini Vision AI** (`gemini-2.5-flash`) analyzes photos of waste to identify material types (plastic, paper, glass, metal, etc.) and estimate weight — removing the guesswork from sorting.
+- **Gemini Chat AI** (`gemma-3-27b-it`) acts as a conversational recycling assistant, answering follow-up questions about how to prepare waste, why recycling matters, and what happens to materials after drop-off.
+
+Together, AI and gamification (points, leaderboards) turn recycling from a confusing chore into an engaging, educational habit — contributing to reduced landfill waste and lower carbon emissions.
+
+---
 
 ## Features
 
