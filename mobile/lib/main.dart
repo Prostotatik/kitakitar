@@ -15,30 +15,28 @@ import 'package:kitakitar_mobile/screens/scan/scan_history_screen.dart';
 import 'package:kitakitar_mobile/models/ai_scan_model.dart';
 import 'package:kitakitar_mobile/screens/qr/qr_scanner_screen.dart';
 
+late final AuthProvider _authProvider;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize Firebase with project configuration
-  // IMPORTANT: First configure Firebase via flutterfire configure
-  // or create firebase_options.dart manually
   try {
-    // Check if Firebase is already initialized
     if (Firebase.apps.isEmpty) {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
     }
   } catch (e) {
-    // If firebase_options.dart is not configured or already initialized
     if (e.toString().contains('duplicate-app')) {
-      // Firebase already initialized, this is normal
-      print('ℹ️ Firebase already initialized');
+      print('Firebase already initialized');
     } else {
-      print('⚠️ ERROR: Firebase not configured!');
-      print('📖 See README.md for setup instructions');
+      print('ERROR: Firebase not configured!');
+      print('See README.md for setup instructions');
       print('Error: $e');
     }
   }
+
+  _authProvider = AuthProvider();
   
   runApp(const MyApp());
 }
@@ -50,7 +48,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider.value(value: _authProvider),
         ChangeNotifierProvider(create: (_) => ScanFiltersProvider()),
         ChangeNotifierProxyProvider<AuthProvider, UserProvider>(
           create: (_) => UserProvider(),
@@ -90,20 +88,17 @@ class MyApp extends StatelessWidget {
 
 final GoRouter _router = GoRouter(
   initialLocation: '/login',
+  refreshListenable: _authProvider,
   redirect: (context, state) {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final isLoggedIn = authProvider.isAuthenticated;
+    final isLoggedIn = _authProvider.isAuthenticated;
     final isAuthRoute = state.matchedLocation == '/login' ||
         state.matchedLocation == '/register' ||
         state.matchedLocation == '/forgot-password';
 
-    // If not logged in and trying to access protected route, redirect to login
     if (!isLoggedIn && !isAuthRoute) {
       return '/login';
     }
-    // If logged in and on login screen, redirect to home
-    // Do NOT redirect from /register or /forgot-password - allow users to access these screens
-    // even if logged in (they might want to create another account or reset password)
+    // Do NOT redirect from /register or /forgot-password
     if (isLoggedIn && state.matchedLocation == '/login') {
       return '/';
     }

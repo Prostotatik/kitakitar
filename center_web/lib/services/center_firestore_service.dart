@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models/center_material.dart';
 import '../models/center_profile.dart';
@@ -22,6 +23,41 @@ class QrCodeListItem {
   final bool used;
   final String? usedBy;
   final DateTime? usedAt;
+}
+
+/// One completed transaction for history display.
+class TransactionListItem {
+  const TransactionListItem({
+    required this.id,
+    required this.userId,
+    required this.totalWeight,
+    required this.pointsCenter,
+    required this.materials,
+    this.createdAt,
+    this.qrCodeId,
+  });
+
+  final String id;
+  final String userId;
+  final double totalWeight;
+  final int pointsCenter;
+  final List<TransactionMaterial> materials;
+  final DateTime? createdAt;
+  final String? qrCodeId;
+}
+
+class TransactionMaterial {
+  const TransactionMaterial({
+    required this.type,
+    required this.weight,
+    required this.pricePerKg,
+    required this.isFree,
+  });
+
+  final String type;
+  final double weight;
+  final double pricePerKg;
+  final bool isFree;
 }
 
 /// Firestore service for recycling centers (web).
@@ -237,5 +273,63 @@ class CenterFirestoreService {
         'email': managerEmail,
       },
     });
+  }
+
+  /// Replaces the materials subcollection with [materials].
+  Future<void> updateMaterials({
+    required String centerId,
+    required List<CenterMaterialEntry> materials,
+  }) async {
+    final colRef = _db.collection('centers').doc(centerId).collection('materials');
+    final existing = await colRef.get();
+    final batch = _db.batch();
+    for (final doc in existing.docs) {
+      batch.delete(doc.reference);
+    }
+    for (final m in materials) {
+      batch.set(colRef.doc(), m.toFirestore());
+    }
+    await batch.commit();
+  }
+
+  /// Fetches completed transactions for this center, newest first.
+  Future<List<TransactionListItem>> getTransactions(String centerId) async {
+    try {
+      final snap = await _db
+          .collection('transactions')
+          .where('centerId', isEqualTo: centerId)
+          .get();
+      final list = snap.docs.map((doc) {
+        final data = doc.data();
+        final rawMats = data['materials'] as List<dynamic>? ?? [];
+        final materials = rawMats.map((m) {
+          final map = m as Map<String, dynamic>;
+          return TransactionMaterial(
+            type: map['type'] as String? ?? '',
+            weight: (map['weight'] as num?)?.toDouble() ?? 0,
+            pricePerKg: (map['pricePerKg'] as num?)?.toDouble() ?? 0,
+            isFree: map['isFree'] as bool? ?? true,
+          );
+        }).toList();
+        return TransactionListItem(
+          id: doc.id,
+          userId: data['userId'] as String? ?? '',
+          totalWeight: (data['totalWeight'] as num?)?.toDouble() ?? 0,
+          pointsCenter: (data['pointsCenter'] as num?)?.toInt() ?? 0,
+          materials: materials,
+          createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+          qrCodeId: data['qrCodeId'] as String?,
+        );
+      }).toList();
+      list.sort((a, b) {
+        final ta = a.createdAt ?? DateTime(0);
+        final tb = b.createdAt ?? DateTime(0);
+        return tb.compareTo(ta);
+      });
+      return list;
+    } catch (e) {
+      debugPrint('[getTransactions] error: $e');
+      return [];
+    }
   }
 }

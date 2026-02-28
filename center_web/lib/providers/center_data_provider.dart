@@ -60,6 +60,9 @@ class CenterDataProvider with ChangeNotifier {
 
   /// Reload current center. No-op if no centerId.
   Future<void> refresh() async {
-    if (_centerId != null) await load(_centerId!);
+    if (_centerId == null) return;
+    final id = _centerId!;
+    _center = null;
+    await load(id);
   }
 }

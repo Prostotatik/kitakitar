@@ -6,4 +6,4 @@ const String geminiApiKey = String.fromEnvironment(
 );
 
 /// Set to true to always use mock response (plastic 0.05, paper 0.02 + tip). No API call.
-const bool useMockResponse = true;
+const bool useMockResponse = false;

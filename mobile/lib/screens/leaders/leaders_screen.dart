@@ -24,28 +24,122 @@ class LeadersScreen extends StatelessWidget {
             ],
           ),
         ),
-        body: const TabBarView(
+        body: Column(
           children: [
-            _LeaderboardList(
-              type: 'users',
-              metric: 'points',
+            const Expanded(
+              child: TabBarView(
+                children: [
+                  _LeaderboardList(
+                    type: 'users',
+                    metric: 'points',
+                  ),
+                  _LeaderboardList(
+                    type: 'users',
+                    metric: 'totalWeight',
+                    isWeight: true,
+                  ),
+                  _LeaderboardList(
+                    type: 'centers',
+                    metric: 'points',
+                  ),
+                  _LeaderboardList(
+                    type: 'centers',
+                    metric: 'totalWeight',
+                    isWeight: true,
+                  ),
+                ],
+              ),
             ),
-            _LeaderboardList(
-              type: 'users',
-              metric: 'totalWeight',
-              isWeight: true,
-            ),
-            _LeaderboardList(
-              type: 'centers',
-              metric: 'points',
-            ),
-            _LeaderboardList(
-              type: 'centers',
-              metric: 'totalWeight',
-              isWeight: true,
-            ),
+            const _RewardsBanner(),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _RewardsBanner extends StatelessWidget {
+  const _RewardsBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            colorScheme.primary,
+            colorScheme.tertiary,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.card_giftcard_rounded,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Rewards from Partners',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Exchange your points for exclusive deals & discounts',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.85),
+                      ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text(
+              'Soon',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -71,6 +165,10 @@ class _LeaderboardList extends StatelessWidget {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return const Center(child: Text('No data'));
         }
 
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {

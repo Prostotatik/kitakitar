@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:kitakitar_mobile/models/ai_scan_model.dart';
 import 'package:kitakitar_mobile/providers/scan_filters_provider.dart';
+import 'package:kitakitar_mobile/screens/scan/recycling_chat_sheet.dart';
 
 class ScanResultScreen extends StatelessWidget {
   final List<DetectedMaterial> detectedMaterials;
@@ -41,112 +42,141 @@ class ScanResultScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Scan Result'),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (imagePath != null || imageUrl != null) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: imagePath != null
-                    ? Image.file(
-                        File(imagePath!),
-                        width: double.infinity,
-                        height: 300,
-                        fit: BoxFit.cover,
-                      )
-                    : CachedNetworkImage(
-                        imageUrl: imageUrl!,
-                        width: double.infinity,
-                        height: 300,
-                        fit: BoxFit.cover,
-                        placeholder: (_, __) => Container(
-                          height: 300,
-                          color: Colors.grey.shade200,
-                          child: const Center(child: CircularProgressIndicator()),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (imagePath != null || imageUrl != null) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: imagePath != null
+                          ? Image.file(
+                              File(imagePath!),
+                              width: double.infinity,
+                              height: 250,
+                              fit: BoxFit.cover,
+                            )
+                          : CachedNetworkImage(
+                              imageUrl: imageUrl!,
+                              width: double.infinity,
+                              height: 250,
+                              fit: BoxFit.cover,
+                              placeholder: (_, __) => Container(
+                                height: 250,
+                                color: Colors.grey.shade200,
+                                child: const Center(child: CircularProgressIndicator()),
+                              ),
+                              errorWidget: (_, __, ___) => Container(
+                                height: 250,
+                                color: Colors.grey.shade200,
+                                child: const Icon(Icons.broken_image, size: 48),
+                              ),
+                            ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  const Text(
+                    'Detected Materials:',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ...detectedMaterials.map((material) => Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.recycling, color: Color(0xFF4CAF50)),
+                          title: Text(_getMaterialLabel(material.type)),
+                          trailing: Text(
+                            '${material.estimatedWeight.toStringAsFixed(2)} kg',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
                         ),
-                        errorWidget: (_, __, ___) => Container(
-                          height: 300,
-                          color: Colors.grey.shade200,
-                          child: const Icon(Icons.broken_image, size: 48),
+                      )),
+                  if (preparationTip != null && preparationTip!.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Card(
+                      color: Colors.blue.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.lightbulb_outline, color: Colors.blue.shade700, size: 22),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                preparationTip!,
+                                style: TextStyle(fontSize: 14, color: Colors.blue.shade900),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-              ),
-              const SizedBox(height: 24),
-            ],
-            const Text(
-              'Detected Materials:',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+                    ),
+                  ],
+                ],
               ),
             ),
-            const SizedBox(height: 16),
-            ...detectedMaterials.map((material) => Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    leading: const Icon(Icons.recycling, color: Color(0xFF4CAF50)),
-                    title: Text(_getMaterialLabel(material.type)),
-                    subtitle: Text(
-                      'Weight: ${material.estimatedWeight.toStringAsFixed(2)} kg',
-                    ),
-                    trailing: Text(
-                      '${material.estimatedWeight.toStringAsFixed(2)} kg',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.white,
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                          ),
+                          builder: (_) => RecyclingChatSheet(
+                            materials: detectedMaterials,
+                            preparationTip: preparationTip,
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.eco),
+                      label: const Text('Ask AI'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                     ),
                   ),
-                )),
-            if (preparationTip != null && preparationTip!.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              const Text(
-                'Preparation tip',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Card(
-                color: Colors.blue.shade50,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.lightbulb_outline, color: Colors.blue.shade700, size: 24),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          preparationTip!,
-                          style: TextStyle(fontSize: 15, color: Colors.blue.shade900),
-                        ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        final provider = Provider.of<ScanFiltersProvider>(context, listen: false);
+                        provider.setScanFilters(detectedMaterials);
+                        context.go('/', extra: {'initialTab': 1});
+                      },
+                      icon: const Icon(Icons.map),
+                      label: const Text('Show on Map'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  final provider = Provider.of<ScanFiltersProvider>(context, listen: false);
-                  provider.setScanFilters(detectedMaterials);
-                  context.go('/', extra: {'initialTab': 1});
-                },
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: const Text('Show on Map'),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

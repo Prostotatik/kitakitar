@@ -244,11 +244,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton(
-                  onPressed: () async {
-                    await authProvider.signOut();
-                    if (mounted) {
-                      // Navigation handled by router redirect
-                    }
+                  onPressed: () {
+                    authProvider.signOut();
                   },
                   child: const Text('Sign Out'),
                 ),

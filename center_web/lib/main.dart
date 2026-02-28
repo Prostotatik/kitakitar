@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
@@ -575,7 +578,7 @@ class _RegisterCenterPageState extends State<RegisterCenterPage> {
                                   child: _LabeledTextField(
                                     controller: _managerPhoneController,
                                     label: 'Phone',
-                                    hint: '+998 90 123 45 67',
+                                    hint: '+60 12-345 6789',
                                   ),
                                 ),
                               ],
@@ -825,7 +828,7 @@ class _DashboardShellState extends State<DashboardShell> {
   Widget _buildPage() {
     switch (_page) {
       case _DashboardPage.dashboard:
-        return const _DashboardPageView();
+        return _DashboardPageView(centerId: widget.centerId);
       case _DashboardPage.profile:
         return const _ProfilePageView();
       case _DashboardPage.newIntake:
@@ -833,7 +836,7 @@ class _DashboardShellState extends State<DashboardShell> {
       case _DashboardPage.qrCodes:
         return _QrCodesPageView(centerId: widget.centerId);
       case _DashboardPage.history:
-        return const _HistoryPageView();
+        return _HistoryPageView(centerId: widget.centerId);
     }
   }
 }
@@ -1023,8 +1026,57 @@ class _SidebarItem extends StatelessWidget {
 /// DASHBOARD PAGES (from Firestore)
 /// -----------------------
 
-class _DashboardPageView extends StatelessWidget {
-  const _DashboardPageView();
+class _DashboardPageView extends StatefulWidget {
+  const _DashboardPageView({required this.centerId});
+
+  final String centerId;
+
+  @override
+  State<_DashboardPageView> createState() => _DashboardPageViewState();
+}
+
+class _DashboardPageViewState extends State<_DashboardPageView> {
+  List<TransactionListItem> _transactions = [];
+  int _claimedQr = 0;
+  bool _statsLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStats();
+  }
+
+  Future<void> _loadStats() async {
+    setState(() => _statsLoading = true);
+    final firestore = CenterFirestoreService();
+    final results = await Future.wait([
+      firestore.getTransactions(widget.centerId),
+      firestore.getCompletedQrCodes(widget.centerId),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _transactions = results[0] as List<TransactionListItem>;
+      _claimedQr = (results[1] as List).length;
+      _statsLoading = false;
+    });
+  }
+
+  /// Count intakes per day for the last [days] days.
+  Map<DateTime, int> _dailyCounts({int days = 14}) {
+    final now = DateTime.now();
+    final startDay = DateTime(now.year, now.month, now.day).subtract(Duration(days: days - 1));
+    final map = <DateTime, int>{};
+    for (var i = 0; i < days; i++) {
+      map[startDay.add(Duration(days: i))] = 0;
+    }
+    for (final t in _transactions) {
+      if (t.createdAt == null) continue;
+      final d = DateTime(t.createdAt!.year, t.createdAt!.month, t.createdAt!.day);
+      if (d.isBefore(startDay)) continue;
+      map[d] = (map[d] ?? 0) + 1;
+    }
+    return map;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1089,11 +1141,11 @@ class _DashboardPageView extends StatelessWidget {
               spacing: 16,
               runSpacing: 16,
               children: [
-                const _StatCard(
+                _StatCard(
                   title: 'Total intakes',
-                  value: '0',
+                  value: _statsLoading ? '…' : '${_transactions.length}',
                   icon: Icons.insert_drive_file_outlined,
-                  color: Color(0xFF4CAF50),
+                  color: const Color(0xFF4CAF50),
                 ),
                 _StatCard(
                   title: 'Total weight',
@@ -1107,11 +1159,11 @@ class _DashboardPageView extends StatelessWidget {
                   icon: Icons.stars_rounded,
                   color: const Color(0xFFF59E0B),
                 ),
-                const _StatCard(
+                _StatCard(
                   title: 'Claimed QR codes',
-                  value: '0',
+                  value: _statsLoading ? '…' : '$_claimedQr',
                   icon: Icons.qr_code_2_outlined,
-                  color: Color(0xFF8B5CF6),
+                  color: const Color(0xFF8B5CF6),
                 ),
               ],
             ),
@@ -1121,20 +1173,170 @@ class _DashboardPageView extends StatelessWidget {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(24),
                 ),
-                child: Center(
-                  child: Text(
-                    'Recent intakes and analytics will appear here\n'
-                    '(connect to Firestore `/transactions` later).',
-                    textAlign: TextAlign.center,
-                    style: textTheme.bodyMedium
-                        ?.copyWith(color: colorScheme.onSurface),
-                  ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+                  child: _statsLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _DailyIntakeChart(
+                          dailyCounts: _dailyCounts(),
+                          textTheme: textTheme,
+                          colorScheme: colorScheme,
+                        ),
                 ),
               ),
             ),
           ],
         );
       },
+    );
+  }
+}
+
+class _DailyIntakeChart extends StatelessWidget {
+  const _DailyIntakeChart({
+    required this.dailyCounts,
+    required this.textTheme,
+    required this.colorScheme,
+  });
+
+  final Map<DateTime, int> dailyCounts;
+  final TextTheme textTheme;
+  final ColorScheme colorScheme;
+
+  static const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  @override
+  Widget build(BuildContext context) {
+    final sortedKeys = dailyCounts.keys.toList()..sort();
+    final values = sortedKeys.map((k) => dailyCounts[k]!.toDouble()).toList();
+    final maxVal = values.isEmpty ? 1.0 : math.max(values.reduce(math.max), 1.0);
+    final roundedMaxY = (maxVal * 1.3).ceilToDouble();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.bar_chart_rounded, size: 20, color: colorScheme.primary),
+            const SizedBox(width: 8),
+            Text(
+              'Daily intakes (last 14 days)',
+              style: textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: colorScheme.onSurface,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Expanded(
+          child: BarChart(
+            BarChartData(
+              alignment: BarChartAlignment.spaceAround,
+              maxY: roundedMaxY,
+              barTouchData: BarTouchData(
+                touchTooltipData: BarTouchTooltipData(
+                  tooltipBorderRadius: BorderRadius.circular(8),
+                  getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                    final d = sortedKeys[group.x.toInt()];
+                    final label = '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}';
+                    final count = rod.toY.toInt();
+                    return BarTooltipItem(
+                      '$label\n$count intake${count == 1 ? '' : 's'}',
+                      TextStyle(
+                        color: colorScheme.onPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    );
+                  },
+                ),
+              ),
+              titlesData: FlTitlesData(
+                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 32,
+                    interval: maxVal <= 5 ? 1 : null,
+                    getTitlesWidget: (value, meta) {
+                      if (value == 0 || value != value.roundToDouble()) {
+                        return const SizedBox.shrink();
+                      }
+                      return Text(
+                        '${value.toInt()}',
+                        style: textTheme.labelSmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    getTitlesWidget: (value, meta) {
+                      final idx = value.toInt();
+                      if (idx < 0 || idx >= sortedKeys.length) {
+                        return const SizedBox.shrink();
+                      }
+                      final d = sortedKeys[idx];
+                      final now = DateTime.now();
+                      final today = DateTime(now.year, now.month, now.day);
+                      String label;
+                      if (d == today) {
+                        label = 'Today';
+                      } else {
+                        label = '${d.day}/${d.month}';
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          label,
+                          style: textTheme.labelSmall?.copyWith(
+                            color: d == today
+                                ? colorScheme.primary
+                                : colorScheme.onSurfaceVariant,
+                            fontSize: 10,
+                            fontWeight: d == today ? FontWeight.w600 : null,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              gridData: FlGridData(
+                show: true,
+                drawVerticalLine: false,
+                horizontalInterval: maxVal <= 5 ? 1 : roundedMaxY / 4,
+                getDrawingHorizontalLine: (_) => FlLine(
+                  color: colorScheme.outlineVariant.withOpacity(0.4),
+                  strokeWidth: 1,
+                ),
+              ),
+              borderData: FlBorderData(show: false),
+              barGroups: List.generate(sortedKeys.length, (i) {
+                final val = values[i];
+                return BarChartGroupData(
+                  x: i,
+                  barRods: [
+                    BarChartRodData(
+                      toY: val,
+                      width: sortedKeys.length > 10 ? 14 : 22,
+                      color: val > 0
+                          ? const Color(0xFF4CAF50)
+                          : colorScheme.outlineVariant.withOpacity(0.15),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                    ),
+                  ],
+                );
+              }),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1157,6 +1359,10 @@ class _ProfilePageViewState extends State<_ProfilePageView> {
   String? _syncedCenterId;
   bool _saving = false;
 
+  /// type -> (minKg, maxKg, pricePerKg); mirrors registration page.
+  final Map<String, ({double minKg, double maxKg, double pricePerKg})> _materials = {};
+  bool _materialsSynced = false;
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -1167,7 +1373,7 @@ class _ProfilePageViewState extends State<_ProfilePageView> {
     super.dispose();
   }
 
-  void _syncFromCenter(CenterProfile c, String centerId) {
+  void _syncFromCenter(CenterProfile c, String centerId, List<CenterMaterialEntry> mats) {
     if (_syncedCenterId == centerId) return;
     _syncedCenterId = centerId;
     _nameController.text = c.name;
@@ -1177,6 +1383,18 @@ class _ProfilePageViewState extends State<_ProfilePageView> {
     _managerEmailController.text = c.managerEmail;
     _lat = c.lat;
     _lng = c.lng;
+
+    if (!_materialsSynced) {
+      _materialsSynced = true;
+      _materials.clear();
+      for (final m in mats) {
+        _materials[m.type] = (
+          minKg: m.minWeightKg,
+          maxKg: m.maxWeightKg,
+          pricePerKg: m.pricePerKg,
+        );
+      }
+    }
   }
 
   Future<void> _save(BuildContext context) async {
@@ -1195,20 +1413,46 @@ class _ProfilePageViewState extends State<_ProfilePageView> {
       );
       return;
     }
+    if (_materials.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select at least one accepted material type.')),
+      );
+      return;
+    }
     final lat = _lat ?? c.lat;
     final lng = _lng ?? c.lng;
     setState(() => _saving = true);
     try {
-      await CenterFirestoreService().updateCenter(
-        centerId: centerId,
-        name: name,
-        address: address,
-        lat: lat,
-        lng: lng,
-        managerName: managerName,
-        managerPhone: managerPhone,
-        managerEmail: managerEmail,
-      );
+      final firestore = CenterFirestoreService();
+      final materialsList = _materials.entries.map((e) {
+        final label = kMaterialTypes.firstWhere((t) => t['type'] == e.key)['label'] ?? e.key;
+        return CenterMaterialEntry(
+          type: e.key,
+          label: label,
+          minWeightKg: e.value.minKg,
+          maxWeightKg: e.value.maxKg,
+          pricePerKg: e.value.pricePerKg,
+        );
+      }).toList();
+
+      await Future.wait([
+        firestore.updateCenter(
+          centerId: centerId,
+          name: name,
+          address: address,
+          lat: lat,
+          lng: lng,
+          managerName: managerName,
+          managerPhone: managerPhone,
+          managerEmail: managerEmail,
+        ),
+        firestore.updateMaterials(
+          centerId: centerId,
+          materials: materialsList,
+        ),
+      ]);
+      _materialsSynced = false;
+      _syncedCenterId = null;
       await centerData.refresh();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1265,8 +1509,7 @@ class _ProfilePageViewState extends State<_ProfilePageView> {
 
         final c = centerData.center!;
         final centerId = centerData.centerId ?? '';
-        _syncFromCenter(c, centerId);
-        final materials = centerData.materials;
+        _syncFromCenter(c, centerId, centerData.materials);
 
         return SingleChildScrollView(
           child: Column(
@@ -1331,7 +1574,7 @@ class _ProfilePageViewState extends State<_ProfilePageView> {
                       _LabeledTextField(
                         controller: _managerPhoneController,
                         label: 'Manager phone',
-                        hint: '+998 90 123 45 67',
+                        hint: '+60 12-345 6789',
                       ),
                       const SizedBox(height: 12),
                       _LabeledTextField(
@@ -1341,25 +1584,75 @@ class _ProfilePageViewState extends State<_ProfilePageView> {
                       ),
                       const SizedBox(height: 24),
                       const _SectionTitle('Accepted materials'),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Select types and set min/max weight (kg) and price per kg (0 = free).',
+                        style: textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
                       const SizedBox(height: 8),
-                      materials.isEmpty
-                          ? Text(
-                              'No materials configured.',
-                              style: textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurface,
-                              ),
-                            )
-                          : Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: materials
-                                  .map((m) => _ChipTag(
-                                        label: m.isFree
-                                            ? '${m.label} • free'
-                                            : '${m.label} • \$${m.pricePerKg.toStringAsFixed(2)}/kg',
-                                      ))
-                                  .toList(),
-                            ),
+                      ...kMaterialTypes.map((mat) {
+                        final type = mat['type']!;
+                        final label = mat['label']!;
+                        final isSelected = _materials.containsKey(type);
+                        final params = _materials[type] ??
+                            (minKg: 0.5, maxKg: 100.0, pricePerKg: 0.0);
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _MaterialRow(
+                            icon: getMaterialIcon(type),
+                            label: label,
+                            selected: isSelected,
+                            minKg: isSelected ? params.minKg : 0.5,
+                            maxKg: isSelected ? params.maxKg : 100.0,
+                            pricePerKg: isSelected ? params.pricePerKg : 0.0,
+                            onChanged: (selected) {
+                              setState(() {
+                                if (selected) {
+                                  _materials[type] = (
+                                    minKg: 0.5,
+                                    maxKg: 100.0,
+                                    pricePerKg: 0.0,
+                                  );
+                                } else {
+                                  _materials.remove(type);
+                                }
+                              });
+                            },
+                            onMinChanged: (v) {
+                              setState(() {
+                                final p = _materials[type]!;
+                                _materials[type] = (
+                                  minKg: v,
+                                  maxKg: p.maxKg,
+                                  pricePerKg: p.pricePerKg,
+                                );
+                              });
+                            },
+                            onMaxChanged: (v) {
+                              setState(() {
+                                final p = _materials[type]!;
+                                _materials[type] = (
+                                  minKg: p.minKg,
+                                  maxKg: v,
+                                  pricePerKg: p.pricePerKg,
+                                );
+                              });
+                            },
+                            onPriceChanged: (v) {
+                              setState(() {
+                                final p = _materials[type]!;
+                                _materials[type] = (
+                                  minKg: p.minKg,
+                                  maxKg: p.maxKg,
+                                  pricePerKg: v,
+                                );
+                              });
+                            },
+                          ),
+                        );
+                      }),
                       const SizedBox(height: 24),
                       SizedBox(
                         width: double.infinity,
@@ -2093,46 +2386,239 @@ class _QrCodeListTile extends StatelessWidget {
   }
 }
 
-class _HistoryPageView extends StatelessWidget {
-  const _HistoryPageView();
+class _HistoryPageView extends StatefulWidget {
+  const _HistoryPageView({required this.centerId});
+
+  final String centerId;
+
+  @override
+  State<_HistoryPageView> createState() => _HistoryPageViewState();
+}
+
+class _HistoryPageViewState extends State<_HistoryPageView> {
+  List<TransactionListItem> _transactions = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final list = await CenterFirestoreService().getTransactions(widget.centerId);
+    if (!mounted) return;
+    setState(() {
+      _transactions = list;
+      _loading = false;
+    });
+  }
+
+  static String _fmtDate(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}  '
+      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+
+  static String _materialsSummary(List<TransactionMaterial> mats) {
+    if (mats.isEmpty) return '—';
+    return mats.map((m) {
+      final label = kMaterialTypes
+              .cast<Map<String, String>?>()
+              .firstWhere((t) => t?['type'] == m.type, orElse: () => null)
+              ?['label'] ??
+          m.type;
+      return '$label (${m.weight.toStringAsFixed(1)} kg)';
+    }).join(', ');
+  }
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Intake history',
-          style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+          style: textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: colorScheme.onSurface,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
-          'All transactions for this center.',
-          style: textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
+          'All completed transactions for this center.',
+          style: textTheme.bodyMedium?.copyWith(color: colorScheme.onSurface),
         ),
         const SizedBox(height: 24),
         Expanded(
           child: Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(24),
-            ),
             child: Padding(
               padding: const EdgeInsets.all(24),
-              child: Center(
-                child: Text(
-                  'Table with `/transactions` will be here.\n'
-                  'You can show material, weight, points, status and date.',
-                  textAlign: TextAlign.center,
-                  style: textTheme.bodyMedium
-                      ?.copyWith(color: Colors.grey.shade500),
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const _SectionTitle('Transactions'),
+                      const SizedBox(width: 8),
+                      if (!_loading)
+                        Text(
+                          '(${_transactions.length})',
+                          style: textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: _loading ? null : _load,
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: const Text('Refresh'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: _loading
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const CircularProgressIndicator(),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Loading transactions…',
+                                  style: textTheme.bodyMedium?.copyWith(
+                                    color: colorScheme.onSurface,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : _transactions.isEmpty
+                            ? Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.receipt_long_outlined,
+                                        size: 48,
+                                        color: colorScheme.onSurfaceVariant),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      'No transactions yet.\nTransactions appear after a user scans a QR code.',
+                                      textAlign: TextAlign.center,
+                                      style: textTheme.bodyMedium?.copyWith(
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : _TransactionTable(
+                                transactions: _transactions,
+                                textTheme: textTheme,
+                                colorScheme: colorScheme,
+                              ),
+                  ),
+                ],
               ),
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _TransactionTable extends StatelessWidget {
+  const _TransactionTable({
+    required this.transactions,
+    required this.textTheme,
+    required this.colorScheme,
+  });
+
+  final List<TransactionListItem> transactions;
+  final TextTheme textTheme;
+  final ColorScheme colorScheme;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          child: SizedBox(
+            width: constraints.maxWidth,
+            child: DataTable(
+              headingRowColor: WidgetStateProperty.all(
+                colorScheme.surfaceContainerHighest.withOpacity(0.5),
+              ),
+              columnSpacing: 24,
+              horizontalMargin: 16,
+              columns: const [
+                DataColumn(label: Text('Date')),
+                DataColumn(label: Text('Materials')),
+                DataColumn(label: Text('Weight'), numeric: true),
+                DataColumn(label: Text('Points'), numeric: true),
+                DataColumn(label: Text('QR Code')),
+              ],
+              rows: transactions.map((t) {
+                final date = t.createdAt != null
+                    ? _HistoryPageViewState._fmtDate(t.createdAt!)
+                    : '—';
+                return DataRow(cells: [
+                  DataCell(Text(
+                    date,
+                    style: textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurface,
+                    ),
+                  )),
+                  DataCell(
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 320),
+                      child: Text(
+                        _HistoryPageViewState._materialsSummary(t.materials),
+                        style: textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurface,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
+                      ),
+                    ),
+                  ),
+                  DataCell(Text(
+                    '${t.totalWeight.toStringAsFixed(1)} kg',
+                    style: textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface,
+                    ),
+                  )),
+                  DataCell(Text(
+                    '${t.pointsCenter}',
+                    style: textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.primary,
+                    ),
+                  )),
+                  DataCell(
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 180),
+                      child: Text(
+                        t.qrCodeId ?? '—',
+                        style: textTheme.labelSmall?.copyWith(
+                          fontFamily: 'monospace',
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ]);
+              }).toList(),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -2469,44 +2955,54 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
 
     return SizedBox(
       width: 220,
       child: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              color.withOpacity(0.12),
-              color.withOpacity(0.04),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: color.withOpacity(0.3)),
+          color: color,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.3),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: color, size: 20),
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.25),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 22),
+                ),
+                const Spacer(),
+              ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: textTheme.bodySmall?.copyWith(color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 16),
             Text(
               value,
-              style: textTheme.titleLarge?.copyWith(
+              style: textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
-                color: Colors.grey.shade900,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              title,
+              style: textTheme.bodySmall?.copyWith(
+                color: Colors.white.withOpacity(0.85),
+                fontWeight: FontWeight.w500,
               ),
             ),
           ],
