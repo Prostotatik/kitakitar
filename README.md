@@ -1,3 +1,5 @@
+Video presentation - https://youtu.be/ooA2Mir6oQg
+
 # KitaKitar - Recycling App
 
 ## Project Description
